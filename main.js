@@ -2415,7 +2415,9 @@
 
       this.hotbarEls = [];
       this.invCells = [];
+      this.invCellItemIds = [];
       this.craftCells = [];
+      this.dragMime = "application/x-browsercraft-item";
 
       this.buildUI();
       this.bindEvents();
@@ -2489,8 +2491,23 @@
       for (let i = 0; i < 27; i += 1) {
         const cell = document.createElement("div");
         cell.className = "inv-cell";
+        cell.dataset.index = String(i);
+        cell.draggable = false;
+        cell.addEventListener("dragstart", (e) => {
+          this.handleInventoryDragStart(e, i);
+        });
+        cell.addEventListener("dragend", (e) => {
+          this.handleDragEnd(e);
+        });
+        cell.addEventListener("dragover", (e) => {
+          this.handleInventoryDragOver(e);
+        });
+        cell.addEventListener("drop", (e) => {
+          this.handleInventoryDrop(e, i);
+        });
         this.ui.invGrid.appendChild(cell);
         this.invCells.push(cell);
+        this.invCellItemIds.push(null);
       }
 
       this.ui.craftGrid.innerHTML = "";
@@ -2498,8 +2515,26 @@
         const slot = document.createElement("div");
         slot.className = "craft-slot";
         slot.dataset.index = String(i);
-        slot.addEventListener("click", () => {
-          this.inventory.toggleCraftSlot(i);
+        slot.draggable = false;
+        slot.addEventListener("dragstart", (e) => {
+          this.handleCraftDragStart(e, i);
+        });
+        slot.addEventListener("dragend", (e) => {
+          this.handleDragEnd(e);
+        });
+        slot.addEventListener("dragover", (e) => {
+          this.handleCraftDragOver(e);
+        });
+        slot.addEventListener("drop", (e) => {
+          this.handleCraftDrop(e, i);
+        });
+        slot.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          this.inventory.craftGrid[i] = null;
+          this.updateInventoryUI();
+        });
+        slot.addEventListener("dblclick", () => {
+          this.inventory.craftGrid[i] = null;
           this.updateInventoryUI();
         });
         this.ui.craftGrid.appendChild(slot);
