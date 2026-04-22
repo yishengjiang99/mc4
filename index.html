@@ -232,7 +232,7 @@
 
     #craftGrid {
       display: grid;
-      grid-template-columns: repeat(2, 64px);
+      grid-template-columns: repeat(3, 64px);
       gap: 8px;
     }
 
@@ -389,13 +389,13 @@
   <div id="inventory">
     <h2>Inventory</h2>
     <div id="invGrid"></div>
-    <h3>Crafting 2x2</h3>
+    <h3>Crafting 3x3</h3>
     <div id="crafting">
       <div id="craftGrid"></div>
       <div id="craftPanel">
         <div id="craftResult" class="panel">Output: Empty</div>
         <button id="craftBtn" type="button">Craft Output</button>
-        <div class="panel">Recipe: any number of <strong>Logs</strong> in grid -> <strong>4x Planks per log</strong></div>
+        <div class="panel">Imported vanilla recipes loaded. Click a slot to cycle items you own, then craft the matching recipe.</div>
       </div>
     </div>
   </div>
@@ -446,6 +446,11 @@
           }
         }
 
+        try {
+          await loadScript("./data/recipes.generated.js");
+        } catch (recipeErr) {
+          console.warn("Recipe bundle missing; running fallback recipe set.", recipeErr);
+        }
         await loadScript("./main.js");
       }
 

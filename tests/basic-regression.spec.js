@@ -43,7 +43,6 @@ test.describe('BrowserCraft basic regression', () => {
         x: g.player.position.x,
         y: g.player.position.y,
         z: g.player.position.z,
-        planks: g.inventory.getCount(8),
         modifiedBlocks: g.getRegressionSnapshot().modifiedBlocks,
       };
     });
@@ -56,18 +55,28 @@ test.describe('BrowserCraft basic regression', () => {
     await page.keyboard.press('KeyE');
     await expect(page.locator('#inventory.visible')).toBeVisible();
 
-    const craftSlots = page.locator('#craftGrid .craft-slot');
-    await craftSlots.nth(0).click();
-    await craftSlots.nth(1).click();
+    const craftTarget = await page.evaluate(() => {
+      const g = window.__BROWSERCRAFT__;
+      g.inventory.craftGrid = new Array(9).fill(null);
+      g.inventory.craftGrid[0] = 'minecraft:oak_log';
+      g.updateInventoryUI();
+      const preview = g.inventory.craftPreview();
+      return {
+        itemId: preview ? preview.itemId : null,
+        countBefore: preview ? g.inventory.getCount(preview.itemId) : 0,
+      };
+    });
     await page.locator('#craftBtn').click();
 
-    await expect(page.locator('#message')).toContainText('Crafted planks');
+    await expect(page.locator('#message')).toContainText('Crafted');
 
+    expect(craftTarget.itemId).toBeTruthy();
+    const craftedItemId = craftTarget.itemId;
     await expect
       .poll(async () => {
-        return await page.evaluate(() => window.__BROWSERCRAFT__.inventory.getCount(8));
+        return await page.evaluate((targetId) => window.__BROWSERCRAFT__.inventory.getCount(targetId), craftedItemId);
       })
-      .toBeGreaterThan(start.planks);
+      .toBeGreaterThan(craftTarget.countBefore);
 
     await page.keyboard.press('KeyE');
     await expect(page.locator('#inventory.visible')).toHaveCount(0);

@@ -8,7 +8,7 @@ It includes:
 - Trees, caves, and simple ores
 - First-person controls + pointer lock
 - Break/place voxel interaction
-- Hotbar + inventory overlay + 2x2 crafting (logs -> planks)
+- Hotbar + inventory overlay + 3x3 crafting with imported vanilla recipe data
 - Survival/Creative modes with fly toggle
 - Day/night lighting cycle, fog, particles, and basic sound
 - Seeded world generation + localStorage save/load for modified chunks
@@ -61,6 +61,7 @@ This runs:
 - `Right Click`: place selected block
 - `1-9`: select hotbar block
 - `E`: open/close inventory + crafting
+- `Click crafting slot`: cycle through owned items in that slot
 - `G`: toggle Survival / Creative mode
 - `F`: toggle flying (Creative)
 - `Double-tap Space`: toggle flying (Creative)
@@ -87,24 +88,29 @@ index.html?seed=12345
 
 ## Crafting
 
-Current recipe:
-- Place logs in any crafting slot of the 2x2 grid
-- Output is `4 planks` per log
-- Click **Craft Output** to craft
+Recipe system:
+- Imports all JSON recipes from `data/minecraft/recipe` (`1470` files) into `data/recipes.generated.js`
+- Supports shaped, shapeless, stonecutting, smelting/blasting/smoking/campfire, smithing transform/trim, and transmute recipes
+- Includes practical approximations for special vanilla recipe types (fireworks, map cloning/extending, armor dye, repair, banner/shield decoration, decorated pot)
+- Click a crafting slot to cycle through items you own, then click **Craft Output**
 
 ## Project Structure
 
 - `index.html`:
   - full UI/HUD/inventory layout
   - styles
-  - Three.js CDN + script loading
+  - Three.js CDN/local fallback + generated recipe bundle script loading
 - `main.js`:
   - noise + world generation
   - chunk data + face-culled mesh build
   - player controller (physics/collision/modes)
   - interactions (raycast break/place)
-  - inventory/crafting logic
+  - inventory/crafting logic + recipe matcher
   - day/night + particles + save/load loop
+- `data/recipes.generated.js`:
+  - generated recipe DB bundle used by runtime crafting
+- `tools/import_minecraft_recipes.py`:
+  - importer to regenerate runtime recipe bundle from source JSON files
 
 ## Extending BrowserCraft
 
@@ -124,6 +130,13 @@ Current recipe:
 2. Keep separate transparent/opaque passes.
 3. Consider worker-thread meshing (Web Workers).
 
+### Regenerate imported recipes
+```bash
+python3 tools/import_minecraft_recipes.py \
+  --source /Users/yishengj/Desktop/minecraft_recipes/data/minecraft/recipe \
+  --out data/recipes.generated.js
+```
+
 ### Add hostile mobs
 1. Create a `Mob` class with position/velocity/AABB.
 2. Update each tick with simple seek behavior toward player.
@@ -141,6 +154,7 @@ Current recipe:
 - Tree generation is deterministic and chunk-safe but still basic.
 - Water is static (visual only, no fluid simulation).
 - Inventory UI is intentionally minimal (no drag/drop stack management).
+- Some special recipes are approximated (no full NBT/state simulation).
 - Caves/ores are simple noise-driven generation, not full Minecraft parity.
 - localStorage size limits can cap very large modified-world saves.
 

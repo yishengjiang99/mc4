@@ -7,11 +7,13 @@ This file is a fast restart handoff for new sessions.
 ## Project Snapshot
 
 - Name: BrowserCraft
-- Repo: https://github.com/yishengjiang99/mc4 (private)
+- Repo: https://github.com/yishengjiang99/mc4 (public + GitHub Pages enabled)
 - Runtime: Browser game with Three.js, no build step required.
 - Main files:
-- `index.html` (UI, styles, Three.js bootstrap/fallback)
-- `main.js` (all game logic)
+- `index.html` (UI, styles, Three.js bootstrap/fallback, recipe bundle loading)
+- `main.js` (all game logic + recipe engine)
+- `data/recipes.generated.js` (imported vanilla recipe bundle)
+- `tools/import_minecraft_recipes.py` (recipe importer)
 - `tests/basic-regression.spec.js` (Playwright smoke playthrough)
 - `playwright.config.js` (local server + test runner config)
 
@@ -22,7 +24,8 @@ This file is a fast restart handoff for new sessions.
 - Terrain extras: trees, caves, coal/iron ore, sea-level water fill.
 - Controls: pointer lock look, WASD, jump, crouch/sneak, creative fly toggle.
 - Interaction: block raycast selection, hold-to-break (chains blocks while held), right-click place.
-- UI: crosshair, hotbar, inventory, simple crafting (logs -> planks), FPS stats.
+- UI: crosshair, hotbar, inventory, 3x3 crafting grid, FPS stats.
+- Crafting: full imported vanilla recipe dataset (`1470` files), including shaped/shapeless/smelting-family/stonecutting/smithing/transmute and practical special-recipe approximations.
 - Save/load: seed-based world + modified chunk persistence in `localStorage`.
 - Test mode support: `?test=1` keeps automation stable and exposes test snapshot.
 
@@ -40,6 +43,10 @@ This file is a fast restart handoff for new sessions.
 - More hills.
 - More visible water/coastal areas.
 - Spawn relocation now avoids underwater two-block headspace issues.
+- Added recipe import pipeline and runtime crafting engine:
+- `tools/import_minecraft_recipes.py` builds `data/recipes.generated.js`
+- `index.html` loads generated recipe bundle before `main.js`
+- `main.js` uses `RecipeBook` matcher for 3x3 crafting
 
 ## Key Code Locations
 
@@ -47,22 +54,25 @@ This file is a fast restart handoff for new sessions.
 - `main.js:4` (`CHUNK_SIZE`)
 - `main.js:6` (`SEA_LEVEL`)
 - Terrain generation:
-- `main.js:927` (`World.getBiome`)
-- `main.js:942` (`World.getHeight`)
+- `main.js:1658` (`World.getBiome`)
+- `main.js:1673` (`World.getHeight`)
 - Tree generation probabilities:
-- `main.js:706` (`Chunk.generateTrees`)
-- `main.js:974` (`World.getTreeBlockAt`)
+- `main.js:1423` (`Chunk.generateTrees`)
+- `main.js:1698` (`World.getTreeBlockAt`)
+- Recipe engine:
+- `main.js:530` (`class RecipeBook`)
+- `tools/import_minecraft_recipes.py:1` (importer entrypoint)
 - Player movement vectors and input:
-- `main.js:1525` (`forwardInput`/`strafeInput`)
+- `main.js:2256` (`forwardInput`/`strafeInput`)
 - Input bindings:
-- `main.js:1800` (`keydown`)
-- `main.js:1838` (Digit/Numpad hotbar parsing)
+- `main.js:2532` (`keydown`)
+- `main.js:2570` (Digit/Numpad hotbar parsing)
 - Break loop:
-- `main.js:2112` (`updateBreaking`)
+- `main.js:2865` (`updateBreaking`)
 - Spawn safety:
-- `main.js:2010` (`relocatePlayerToSurface`)
+- `main.js:2763` (`relocatePlayerToSurface`)
 - Test hook:
-- `main.js:2421` (`window.__BROWSERCRAFT__ = game`)
+- `main.js:3185` (`window.__BROWSERCRAFT__ = game`)
 
 ## Quick Start (Dev)
 
@@ -100,6 +110,15 @@ Direct Chromium run:
 npx playwright test --project=chromium
 ```
 
+## Regenerate Recipe Bundle
+
+```bash
+cd /Users/yishengj/mc4
+python3 tools/import_minecraft_recipes.py \
+  --source /Users/yishengj/Desktop/minecraft_recipes/data/minecraft/recipe \
+  --out data/recipes.generated.js
+```
+
 ## Save/State Notes
 
 - Save key format: `browsercraft_save_v1_<seed>`.
@@ -112,6 +131,7 @@ npx playwright test --project=chromium
 - Water is static (no fluid simulation).
 - No mobs/combat/health system yet.
 - Minimal inventory UX (no drag-drop stack management).
+- Some special recipes are approximated (NBT/state-sensitive vanilla behavior is simplified).
 - Single-file logic in `main.js` is large and should eventually be modularized.
 
 ## Suggested Next Work (Priority Order)
@@ -137,4 +157,4 @@ npx playwright test --project=chromium
 - Default branch: `main`
 - Remote: `origin` -> `https://github.com/yishengjiang99/mc4.git`
 - Current repo includes `.gitignore` excluding `node_modules`, `.vite`, and Playwright artifacts.
-
+- GitHub Pages URL: https://yishengjiang99.github.io/mc4/

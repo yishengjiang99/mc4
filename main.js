@@ -159,6 +159,29 @@
     BLOCK.WATER,
   ];
 
+  const BLOCK_TO_ITEM = {
+    [BLOCK.GRASS]: "minecraft:grass_block",
+    [BLOCK.DIRT]: "minecraft:dirt",
+    [BLOCK.STONE]: "minecraft:stone",
+    [BLOCK.LOG]: "minecraft:oak_log",
+    [BLOCK.LEAVES]: "minecraft:oak_leaves",
+    [BLOCK.WATER]: "minecraft:water_bucket",
+    [BLOCK.SAND]: "minecraft:sand",
+    [BLOCK.PLANKS]: "minecraft:oak_planks",
+    [BLOCK.COBBLE]: "minecraft:cobblestone",
+    [BLOCK.COAL_ORE]: "minecraft:coal_ore",
+    [BLOCK.IRON_ORE]: "minecraft:iron_ore",
+  };
+
+  const ITEM_TO_BLOCK = new Map(
+    Object.entries(BLOCK_TO_ITEM).map(([blockId, itemId]) => [itemId, Number.parseInt(blockId, 10)])
+  );
+
+  const RECIPE_DATA =
+    typeof window !== "undefined" && window.BROWSERCRAFT_RECIPE_DATA
+      ? window.BROWSERCRAFT_RECIPE_DATA
+      : null;
+
   const FACE_DEFS = [
     {
       dir: [0, 0, 1],
@@ -265,6 +288,47 @@
 
   function smoothstep(t) {
     return t * t * (3 - 2 * t);
+  }
+
+  function titleCaseWords(text) {
+    return text
+      .split("_")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  function blockToItemId(blockId) {
+    if (!BLOCK_INFO[blockId] || blockId === BLOCK.AIR) {
+      return null;
+    }
+    return BLOCK_TO_ITEM[blockId] || `browsercraft:block_${blockId}`;
+  }
+
+  function normalizeItemId(itemIdOrBlockId) {
+    if (typeof itemIdOrBlockId === "number") {
+      return blockToItemId(itemIdOrBlockId);
+    }
+    if (typeof itemIdOrBlockId === "string" && itemIdOrBlockId.length > 0) {
+      return itemIdOrBlockId;
+    }
+    return null;
+  }
+
+  function itemToBlockId(itemId) {
+    return ITEM_TO_BLOCK.get(itemId) ?? null;
+  }
+
+  function itemDisplayName(itemId) {
+    if (!itemId) {
+      return "Empty";
+    }
+    const blockId = itemToBlockId(itemId);
+    if (blockId !== null && BLOCK_INFO[blockId]) {
+      return BLOCK_INFO[blockId].name;
+    }
+    const raw = itemId.includes(":") ? itemId.split(":")[1] : itemId;
+    return titleCaseWords(raw);
   }
 
   class ValueNoise {
@@ -463,11 +527,593 @@
     }
   }
 
+  class RecipeBook {
+    constructor(data) {
+      this.data = data && Array.isArray(data.recipes) ? data : this.makeFallbackData();
+      this.recipes = Array.isArray(this.data.recipes) ? this.data.recipes.slice() : [];
+      this.knownItems = new Set(Array.isArray(this.data.items) ? this.data.items : []);
+      this.tags = new Map();
+
+      const rawTags = this.data.tags && typeof this.data.tags === "object" ? this.data.tags : {};
+      for (const [tagName, values] of Object.entries(rawTags)) {
+        this.tags.set(tagName, new Set(Array.isArray(values) ? values : []));
+      }
+
+      // Always include BrowserCraft placeable items so inventory/hotbar interop works.
+      for (const blockId of Object.values(BLOCK)) {
+        const itemId = blockToItemId(blockId);
+        if (itemId) {
+          this.knownItems.add(itemId);
+        }
+      }
+    }
+
+    makeFallbackData() {
+      return {
+        items: ["minecraft:oak_log", "minecraft:oak_planks"],
+        tags: {
+          "minecraft:oak_logs": ["minecraft:oak_log"],
+          "minecraft:logs": ["minecraft:oak_log"],
+          "minecraft:planks": ["minecraft:oak_planks"],
+        },
+        recipes: [
+          {
+            id: "browsercraft:fallback_oak_planks",
+            type: "minecraft:crafting_shapeless",
+            ingredients: [["#minecraft:oak_logs"]],
+            result: { id: "minecraft:oak_planks", count: 4 },
+          },
+        ],
+      };
+    }
+
+    getKnownItemsSorted() {
+      return Array.from(this.knownItems).sort((a, b) => this.getItemName(a).localeCompare(this.getItemName(b)));
+    }
+
+    getItemName(itemId) {
+      return itemDisplayName(itemId);
+    }
+
+    normalizeGrid(rawGrid) {
+      const out = new Array(9).fill(null);
+      if (!Array.isArray(rawGrid)) {
+        return out;
+      }
+      for (let i = 0; i < 9 && i < rawGrid.length; i += 1) {
+        const itemId = normalizeItemId(rawGrid[i]);
+        out[i] = itemId;
+      }
+      return out;
+    }
+
+    nonEmptyCells(grid) {
+      const cells = [];
+      for (let i = 0; i < grid.length; i += 1) {
+        if (grid[i]) {
+          cells.push({ index: i, itemId: grid[i] });
+        }
+      }
+      return cells;
+    }
+
+    isDye(itemId) {
+      return !!itemId && itemId.endsWith("_dye");
+    }
+
+    isLeatherArmor(itemId) {
+      const raw = itemId.includes(":") ? itemId.split(":")[1] : itemId;
+      return raw === "leather_helmet" || raw === "leather_chestplate" || raw === "leather_leggings" || raw === "leather_boots" || raw === "leather_horse_armor";
+    }
+
+    matchTagHeuristic(tagName, itemId) {
+      const raw = itemId.includes(":") ? itemId.split(":")[1] : itemId;
+      const shortTag = tagName.includes(":") ? tagName.split(":")[1] : tagName;
+
+      if (shortTag === "eggs") {
+        return raw === "egg";
+      }
+      if (shortTag === "planks") {
+        return raw.endsWith("_planks");
+      }
+      if (shortTag === "logs") {
+        return raw.endsWith("_log") || raw.endsWith("_wood") || raw.endsWith("_stem") || raw.endsWith("_hyphae");
+      }
+      if (shortTag === "coals") {
+        return raw === "coal" || raw === "charcoal";
+      }
+      if (shortTag === "wool") {
+        return raw === "wool" || raw.endsWith("_wool");
+      }
+      return false;
+    }
+
+    tokenMatches(itemId, token) {
+      if (!itemId || !token) {
+        return false;
+      }
+
+      if (token.startsWith("#")) {
+        const tagName = token.slice(1);
+        const expanded = this.tags.get(tagName);
+        if (expanded && expanded.size > 0) {
+          return expanded.has(itemId);
+        }
+        return this.matchTagHeuristic(tagName, itemId);
+      }
+
+      return token === itemId;
+    }
+
+    ingredientMatches(itemId, options) {
+      if (!itemId || !Array.isArray(options) || options.length === 0) {
+        return false;
+      }
+      for (let i = 0; i < options.length; i += 1) {
+        if (this.tokenMatches(itemId, options[i])) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    resultFromRecipe(recipe, matchCtx) {
+      if (recipe.result && recipe.result.id) {
+        const count = Number.isFinite(recipe.result.count) && recipe.result.count > 0 ? recipe.result.count : 1;
+        return { id: recipe.result.id, count };
+      }
+      if (recipe.result_copy_from === "base" && matchCtx && matchCtx.baseItemId) {
+        return { id: matchCtx.baseItemId, count: 1 };
+      }
+      if (recipe.result_like) {
+        return { id: recipe.result_like, count: 1 };
+      }
+      return null;
+    }
+
+    matchShapedRecipe(recipe, grid) {
+      if (!Array.isArray(recipe.pattern) || !recipe.pattern.length || !recipe.key || typeof recipe.key !== "object") {
+        return null;
+      }
+
+      const rows = recipe.pattern.map((row) => String(row));
+      const height = rows.length;
+      const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+      if (height > 3 || width > 3) {
+        return null;
+      }
+
+      const mirrors = [false, true];
+      for (let oy = 0; oy <= 3 - height; oy += 1) {
+        for (let ox = 0; ox <= 3 - width; ox += 1) {
+          for (let mi = 0; mi < mirrors.length; mi += 1) {
+            const mirrored = mirrors[mi];
+            let ok = true;
+
+            for (let gy = 0; gy < 3 && ok; gy += 1) {
+              for (let gx = 0; gx < 3; gx += 1) {
+                const cellItem = grid[gx + gy * 3];
+                let symbol = " ";
+
+                const px = gx - ox;
+                const py = gy - oy;
+                if (px >= 0 && py >= 0 && px < width && py < height) {
+                  const row = rows[py];
+                  const rx = mirrored ? width - 1 - px : px;
+                  symbol = row.charAt(rx) || " ";
+                }
+
+                if (symbol === " ") {
+                  if (cellItem !== null) {
+                    ok = false;
+                    break;
+                  }
+                  continue;
+                }
+
+                const ingredient = recipe.key[symbol];
+                if (!ingredient || !cellItem || !this.ingredientMatches(cellItem, ingredient)) {
+                  ok = false;
+                  break;
+                }
+              }
+            }
+
+            if (ok) {
+              const result = this.resultFromRecipe(recipe, null);
+              if (!result) {
+                return null;
+              }
+              return {
+                recipe,
+                result,
+              };
+            }
+          }
+        }
+      }
+
+      return null;
+    }
+
+    matchShapelessIngredients(ingredients, grid) {
+      const normalizedIngredients = ingredients.filter((entry) => Array.isArray(entry) && entry.length > 0);
+      const cells = this.nonEmptyCells(grid);
+      if (normalizedIngredients.length !== cells.length) {
+        return null;
+      }
+
+      const used = new Array(cells.length).fill(false);
+      const assignment = new Array(normalizedIngredients.length).fill(null);
+
+      const order = normalizedIngredients
+        .map((options, idx) => {
+          let candidateCount = 0;
+          for (let c = 0; c < cells.length; c += 1) {
+            if (this.ingredientMatches(cells[c].itemId, options)) {
+              candidateCount += 1;
+            }
+          }
+          return { idx, options, candidateCount };
+        })
+        .sort((a, b) => a.candidateCount - b.candidateCount);
+
+      const backtrack = (depth) => {
+        if (depth >= order.length) {
+          return true;
+        }
+
+        const ingredientIndex = order[depth].idx;
+        const options = normalizedIngredients[ingredientIndex];
+
+        for (let ci = 0; ci < cells.length; ci += 1) {
+          if (used[ci]) {
+            continue;
+          }
+          const cell = cells[ci];
+          if (!this.ingredientMatches(cell.itemId, options)) {
+            continue;
+          }
+
+          used[ci] = true;
+          assignment[ingredientIndex] = cell;
+          if (backtrack(depth + 1)) {
+            return true;
+          }
+          used[ci] = false;
+          assignment[ingredientIndex] = null;
+        }
+
+        return false;
+      };
+
+      if (!backtrack(0)) {
+        return null;
+      }
+
+      return assignment;
+    }
+
+    matchShapelessRecipe(recipe, ingredients, grid, getContext = null) {
+      if (!Array.isArray(ingredients) || ingredients.length === 0) {
+        return null;
+      }
+
+      const assignment = this.matchShapelessIngredients(ingredients, grid);
+      if (!assignment) {
+        return null;
+      }
+
+      const context = typeof getContext === "function" ? getContext(assignment) : null;
+      const result = this.resultFromRecipe(recipe, context);
+      if (!result) {
+        return null;
+      }
+
+      return {
+        recipe,
+        result,
+      };
+    }
+
+    matchSpecialRecipe(recipe, grid) {
+      const kind = recipe.special_kind;
+      const cells = this.nonEmptyCells(grid);
+
+      if (kind === "bookcloning") {
+        if (cells.length < 2) {
+          return null;
+        }
+        let writable = 0;
+        let hasWritten = false;
+        for (const cell of cells) {
+          if (cell.itemId === "minecraft:written_book") {
+            hasWritten = true;
+          } else if (cell.itemId === "minecraft:writable_book") {
+            writable += 1;
+          } else {
+            return null;
+          }
+        }
+        if (!hasWritten || writable <= 0) {
+          return null;
+        }
+        return { recipe, result: { id: "minecraft:written_book", count: writable + 1 } };
+      }
+
+      if (kind === "firework_rocket") {
+        let paper = 0;
+        let powder = 0;
+        for (const cell of cells) {
+          if (cell.itemId === "minecraft:paper") {
+            paper += 1;
+          } else if (cell.itemId === "minecraft:gunpowder") {
+            powder += 1;
+          } else if (cell.itemId !== "minecraft:firework_star") {
+            return null;
+          }
+        }
+        if (paper === 1 && powder >= 1 && powder <= 3) {
+          return { recipe, result: { id: "minecraft:firework_rocket", count: 3 } };
+        }
+        return null;
+      }
+
+      if (kind === "firework_star_fade") {
+        let hasStar = false;
+        let dyes = 0;
+        for (const cell of cells) {
+          if (cell.itemId === "minecraft:firework_star") {
+            hasStar = true;
+          } else if (this.isDye(cell.itemId)) {
+            dyes += 1;
+          } else {
+            return null;
+          }
+        }
+        if (hasStar && dyes > 0) {
+          return { recipe, result: { id: "minecraft:firework_star", count: 1 } };
+        }
+        return null;
+      }
+
+      if (kind === "firework_star") {
+        let hasPowder = false;
+        let dyes = 0;
+        const allowedExtras = new Set([
+          "minecraft:diamond",
+          "minecraft:glowstone_dust",
+          "minecraft:fire_charge",
+          "minecraft:gold_nugget",
+          "minecraft:feather",
+          "minecraft:skull",
+          "minecraft:wither_skeleton_skull",
+          "minecraft:creeper_head",
+          "minecraft:player_head",
+          "minecraft:dragon_head",
+          "minecraft:piglin_head",
+        ]);
+        for (const cell of cells) {
+          if (cell.itemId === "minecraft:gunpowder") {
+            hasPowder = true;
+          } else if (this.isDye(cell.itemId)) {
+            dyes += 1;
+          } else if (!allowedExtras.has(cell.itemId)) {
+            return null;
+          }
+        }
+        if (hasPowder && dyes > 0) {
+          return { recipe, result: { id: "minecraft:firework_star", count: 1 } };
+        }
+        return null;
+      }
+
+      if (kind === "mapcloning") {
+        let emptyMaps = 0;
+        let filledMaps = 0;
+        for (const cell of cells) {
+          if (cell.itemId === "minecraft:filled_map") {
+            filledMaps += 1;
+          } else if (cell.itemId === "minecraft:map") {
+            emptyMaps += 1;
+          } else {
+            return null;
+          }
+        }
+        if (filledMaps === 1 && emptyMaps > 0) {
+          return { recipe, result: { id: "minecraft:filled_map", count: emptyMaps + 1 } };
+        }
+        return null;
+      }
+
+      if (kind === "repairitem") {
+        if (cells.length !== 2 || cells[0].itemId !== cells[1].itemId) {
+          return null;
+        }
+        return { recipe, result: { id: cells[0].itemId, count: 1 } };
+      }
+
+      if (kind === "bannerduplicate") {
+        if (cells.length !== 2) {
+          return null;
+        }
+        const a = cells[0].itemId;
+        const b = cells[1].itemId;
+        if (a === b && (a === "minecraft:banner" || a.endsWith("_banner"))) {
+          return { recipe, result: { id: a, count: 2 } };
+        }
+        return null;
+      }
+
+      if (kind === "armordye") {
+        let armor = null;
+        let dyeCount = 0;
+        for (const cell of cells) {
+          if (this.isLeatherArmor(cell.itemId)) {
+            if (armor && armor !== cell.itemId) {
+              return null;
+            }
+            armor = cell.itemId;
+          } else if (this.isDye(cell.itemId)) {
+            dyeCount += 1;
+          } else {
+            return null;
+          }
+        }
+        if (armor && dyeCount > 0) {
+          return { recipe, result: { id: armor, count: 1 } };
+        }
+        return null;
+      }
+
+      if (kind === "tippedarrow") {
+        if (cells.length !== 9) {
+          return null;
+        }
+        let arrows = 0;
+        let lingering = 0;
+        for (const cell of cells) {
+          if (cell.itemId === "minecraft:arrow") {
+            arrows += 1;
+          } else if (cell.itemId === "minecraft:lingering_potion") {
+            lingering += 1;
+          } else {
+            return null;
+          }
+        }
+        if (arrows === 8 && lingering === 1) {
+          return { recipe, result: { id: "minecraft:tipped_arrow", count: 8 } };
+        }
+        return null;
+      }
+
+      if (kind === "mapextending") {
+        const center = grid[4];
+        if (center !== "minecraft:filled_map") {
+          return null;
+        }
+        for (let i = 0; i < 9; i += 1) {
+          if (i === 4) {
+            continue;
+          }
+          if (grid[i] !== "minecraft:paper") {
+            return null;
+          }
+        }
+        return { recipe, result: { id: "minecraft:filled_map", count: 1 } };
+      }
+
+      if (kind === "shielddecoration") {
+        if (cells.length !== 2) {
+          return null;
+        }
+        let hasShield = false;
+        let hasBanner = false;
+        for (const cell of cells) {
+          if (cell.itemId === "minecraft:shield") {
+            hasShield = true;
+          }
+          if (cell.itemId === "minecraft:banner" || cell.itemId.endsWith("_banner")) {
+            hasBanner = true;
+          }
+        }
+        if (hasShield && hasBanner) {
+          return { recipe, result: { id: "minecraft:shield", count: 1 } };
+        }
+        return null;
+      }
+
+      if (kind === "decorated_pot") {
+        if (cells.length !== 4) {
+          return null;
+        }
+        const ingredientSets = Array.isArray(recipe.ingredients) ? recipe.ingredients : [];
+        if (ingredientSets.length !== 4) {
+          return null;
+        }
+        const assignment = this.matchShapelessIngredients(ingredientSets, grid);
+        if (!assignment) {
+          return null;
+        }
+        return { recipe, result: { id: "minecraft:decorated_pot", count: 1 } };
+      }
+
+      return null;
+    }
+
+    match(gridRaw) {
+      const grid = this.normalizeGrid(gridRaw);
+
+      for (let i = 0; i < this.recipes.length; i += 1) {
+        const recipe = this.recipes[i];
+        if (!recipe || typeof recipe !== "object" || typeof recipe.type !== "string") {
+          continue;
+        }
+
+        const type = recipe.type;
+        let match = null;
+
+        if (type === "minecraft:crafting_shaped") {
+          match = this.matchShapedRecipe(recipe, grid);
+        } else if (type === "minecraft:crafting_shapeless") {
+          match = this.matchShapelessRecipe(recipe, recipe.ingredients || [], grid);
+        } else if (
+          type === "minecraft:stonecutting" ||
+          type === "minecraft:smelting" ||
+          type === "minecraft:blasting" ||
+          type === "minecraft:smoking" ||
+          type === "minecraft:campfire_cooking"
+        ) {
+          match = this.matchShapelessRecipe(recipe, [recipe.ingredient || []], grid);
+        } else if (type === "minecraft:crafting_transmute") {
+          match = this.matchShapelessRecipe(recipe, [recipe.input || [], recipe.material || []], grid);
+        } else if (type === "minecraft:smithing_transform") {
+          match = this.matchShapelessRecipe(
+            recipe,
+            [recipe.template || [], recipe.base || [], recipe.addition || []],
+            grid
+          );
+        } else if (type === "minecraft:smithing_trim") {
+          match = this.matchShapelessRecipe(
+            recipe,
+            [recipe.template || [], recipe.base || [], recipe.addition || []],
+            grid,
+            (assignment) => ({
+              baseItemId: assignment[1] ? assignment[1].itemId : null,
+            })
+          );
+        } else if (recipe.special || type.startsWith("minecraft:crafting_special_") || type === "minecraft:crafting_decorated_pot") {
+          match = this.matchSpecialRecipe(recipe, grid);
+        }
+
+        if (match) {
+          return match;
+        }
+      }
+
+      return null;
+    }
+
+    preview(gridRaw) {
+      const match = this.match(gridRaw);
+      if (!match) {
+        return null;
+      }
+      return {
+        itemId: match.result.id,
+        count: match.result.count,
+        recipeId: match.recipe.id,
+        recipeType: match.recipe.type,
+      };
+    }
+  }
+
   class Inventory {
-    constructor() {
+    constructor(recipeBook) {
+      this.recipeBook = recipeBook;
       this.counts = new Map();
       this.selectedHotbar = 0;
-      this.craftGrid = [BLOCK.AIR, BLOCK.AIR, BLOCK.AIR, BLOCK.AIR];
+      this.craftGrid = new Array(9).fill(null);
 
       this.add(BLOCK.DIRT, 64);
       this.add(BLOCK.STONE, 64);
@@ -480,89 +1126,152 @@
       this.add(BLOCK.WATER, 12);
     }
 
-    add(blockId, amount = 1) {
-      if (blockId === BLOCK.AIR || amount <= 0) {
+    add(itemIdOrBlockId, amount = 1) {
+      const itemId = normalizeItemId(itemIdOrBlockId);
+      if (!itemId || amount <= 0) {
         return;
       }
-      const old = this.counts.get(blockId) || 0;
-      this.counts.set(blockId, old + amount);
+      const old = this.counts.get(itemId) || 0;
+      this.counts.set(itemId, old + amount);
+      if (this.recipeBook) {
+        this.recipeBook.knownItems.add(itemId);
+      }
     }
 
-    remove(blockId, amount = 1) {
-      if (blockId === BLOCK.AIR || amount <= 0) {
+    remove(itemIdOrBlockId, amount = 1) {
+      const itemId = normalizeItemId(itemIdOrBlockId);
+      if (!itemId || amount <= 0) {
         return false;
       }
-      const old = this.counts.get(blockId) || 0;
+      const old = this.counts.get(itemId) || 0;
       if (old < amount) {
         return false;
       }
       const next = old - amount;
       if (next === 0) {
-        this.counts.delete(blockId);
+        this.counts.delete(itemId);
       } else {
-        this.counts.set(blockId, next);
+        this.counts.set(itemId, next);
       }
       return true;
     }
 
-    getCount(blockId) {
-      return this.counts.get(blockId) || 0;
+    getCount(itemIdOrBlockId) {
+      const itemId = normalizeItemId(itemIdOrBlockId);
+      if (!itemId) {
+        return 0;
+      }
+      return this.counts.get(itemId) || 0;
     }
 
     getSelectedBlock() {
       return HOTBAR_DEFAULTS[this.selectedHotbar] || BLOCK.DIRT;
     }
 
-    assignedCraftLogs() {
-      let c = 0;
+    countAssigned(itemId, ignoreIndex = -1) {
+      let count = 0;
       for (let i = 0; i < this.craftGrid.length; i += 1) {
-        if (this.craftGrid[i] === BLOCK.LOG) {
-          c += 1;
+        if (i === ignoreIndex) {
+          continue;
+        }
+        if (this.craftGrid[i] === itemId) {
+          count += 1;
         }
       }
-      return c;
+      return count;
+    }
+
+    getOwnedItemsSorted() {
+      const items = [];
+      for (const [itemId, count] of this.counts.entries()) {
+        if (count > 0) {
+          items.push(itemId);
+        }
+      }
+      return items.sort((a, b) => this.recipeBook.getItemName(a).localeCompare(this.recipeBook.getItemName(b)));
     }
 
     toggleCraftSlot(index) {
       if (index < 0 || index >= this.craftGrid.length) {
         return;
       }
-      const current = this.craftGrid[index];
-      if (current === BLOCK.LOG) {
-        this.craftGrid[index] = BLOCK.AIR;
+
+      const options = [null, ...this.getOwnedItemsSorted()];
+      if (options.length <= 1) {
+        this.craftGrid[index] = null;
         return;
       }
 
-      const assigned = this.assignedCraftLogs();
-      if (this.getCount(BLOCK.LOG) > assigned) {
-        this.craftGrid[index] = BLOCK.LOG;
+      const current = this.craftGrid[index];
+      let ptr = options.indexOf(current);
+      if (ptr < 0) {
+        ptr = 0;
+      }
+
+      for (let step = 1; step <= options.length; step += 1) {
+        const candidate = options[(ptr + step) % options.length];
+        if (candidate === null) {
+          this.craftGrid[index] = null;
+          return;
+        }
+
+        const assigned = this.countAssigned(candidate, index);
+        if (assigned < this.getCount(candidate)) {
+          this.craftGrid[index] = candidate;
+          return;
+        }
+      }
+
+      this.craftGrid[index] = null;
+    }
+
+    clearCraftGrid() {
+      for (let i = 0; i < this.craftGrid.length; i += 1) {
+        this.craftGrid[i] = null;
       }
     }
 
     craftPreview() {
-      const logs = this.assignedCraftLogs();
-      if (logs <= 0) {
-        return { type: BLOCK.AIR, count: 0 };
+      if (!this.recipeBook) {
+        return null;
       }
-      return {
-        type: BLOCK.PLANKS,
-        count: logs * 4,
-      };
+      return this.recipeBook.preview(this.craftGrid);
     }
 
     craft() {
-      const logs = this.assignedCraftLogs();
-      if (logs <= 0) {
-        return false;
+      if (!this.recipeBook) {
+        return { ok: false, reason: "no_recipe_book" };
       }
-      if (!this.remove(BLOCK.LOG, logs)) {
-        return false;
+      const match = this.recipeBook.match(this.craftGrid);
+      if (!match) {
+        return { ok: false, reason: "no_recipe" };
       }
-      this.add(BLOCK.PLANKS, logs * 4);
+
+      const needed = new Map();
       for (let i = 0; i < this.craftGrid.length; i += 1) {
-        this.craftGrid[i] = BLOCK.AIR;
+        const itemId = this.craftGrid[i];
+        if (!itemId) {
+          continue;
+        }
+        needed.set(itemId, (needed.get(itemId) || 0) + 1);
       }
-      return true;
+
+      for (const [itemId, amount] of needed.entries()) {
+        if (this.getCount(itemId) < amount) {
+          return { ok: false, reason: "missing_items" };
+        }
+      }
+
+      for (const [itemId, amount] of needed.entries()) {
+        this.remove(itemId, amount);
+      }
+      this.add(match.result.id, match.result.count);
+      this.clearCraftGrid();
+      return {
+        ok: true,
+        result: match.result,
+        recipe: match.recipe,
+      };
     }
 
     toJSON() {
@@ -577,19 +1286,41 @@
       if (!data || typeof data !== "object") {
         return;
       }
+
       if (Array.isArray(data.counts)) {
         this.counts.clear();
-        for (const [blockId, count] of data.counts) {
-          if (BLOCK_INFO[blockId] && Number.isFinite(count) && count > 0) {
-            this.counts.set(blockId, Math.floor(count));
+        for (const entry of data.counts) {
+          if (!Array.isArray(entry) || entry.length < 2) {
+            continue;
+          }
+          const itemId = normalizeItemId(entry[0]);
+          const count = entry[1];
+          if (itemId && Number.isFinite(count) && count > 0) {
+            this.counts.set(itemId, Math.floor(count));
+            if (this.recipeBook) {
+              this.recipeBook.knownItems.add(itemId);
+            }
           }
         }
       }
+
       if (Number.isInteger(data.selectedHotbar)) {
         this.selectedHotbar = clamp(data.selectedHotbar, 0, 8);
       }
-      if (Array.isArray(data.craftGrid) && data.craftGrid.length === 4) {
-        this.craftGrid = data.craftGrid.map((id) => (BLOCK_INFO[id] ? id : BLOCK.AIR));
+
+      if (Array.isArray(data.craftGrid)) {
+        const incoming = data.craftGrid;
+        if (incoming.length === 9) {
+          this.craftGrid = incoming.map((entry) => normalizeItemId(entry));
+        } else if (incoming.length === 4) {
+          // Migrate legacy 2x2 grid into top-left corner of current 3x3 grid.
+          const migrated = new Array(9).fill(null);
+          const legacyMap = [0, 1, 3, 4];
+          for (let i = 0; i < legacyMap.length; i += 1) {
+            migrated[legacyMap[i]] = normalizeItemId(incoming[i]);
+          }
+          this.craftGrid = migrated;
+        }
       }
     }
   }
@@ -1643,7 +2374,8 @@
 
       this.world = new World(this.scene, this.seed);
       this.player = new Player(this.camera, this.world);
-      this.inventory = new Inventory();
+      this.recipeBook = new RecipeBook(RECIPE_DATA);
+      this.inventory = new Inventory(this.recipeBook);
       this.particles = new ParticleSystem(this.scene);
       this.sfx = new SimpleSfx();
 
@@ -1762,7 +2494,7 @@
       }
 
       this.ui.craftGrid.innerHTML = "";
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < 9; i += 1) {
         const slot = document.createElement("div");
         slot.className = "craft-slot";
         slot.dataset.index = String(i);
@@ -1775,12 +2507,12 @@
       }
 
       this.ui.craftBtn.addEventListener("click", () => {
-        const ok = this.inventory.craft();
-        if (ok) {
+        const result = this.inventory.craft();
+        if (result.ok) {
           this.sfx.craft();
-          this.showMessage("Crafted planks", "ok");
+          this.showMessage(`Crafted ${itemDisplayName(result.result.id)} x${result.result.count}`, "ok");
         } else {
-          this.showMessage("Need logs in crafting grid", "warn");
+          this.showMessage("No matching recipe for current 3x3 grid", "warn");
         }
         this.updateInventoryUI();
       });
@@ -1978,8 +2710,8 @@
         inventoryOpen: this.inventoryOpen,
         controlsEnabled: this.controlsEnabled,
         selectedHotbar: this.inventory.selectedHotbar,
-        logs: this.inventory.getCount(BLOCK.LOG),
-        planks: this.inventory.getCount(BLOCK.PLANKS),
+        logs: this.inventory.getCount("minecraft:oak_log"),
+        planks: this.inventory.getCount("minecraft:oak_planks"),
         chunksLoaded: this.world.chunks.size,
         modifiedBlocks,
         position: {
@@ -1988,6 +2720,27 @@
           z: this.player.position.z,
         },
       };
+    }
+
+    give(itemId, count = 1) {
+      if (typeof itemId !== "string" || !itemId) {
+        return false;
+      }
+      const amount = Number.isFinite(count) ? Math.max(1, Math.floor(count)) : 1;
+      this.inventory.add(itemId, amount);
+      this.updateHUD(true);
+      this.showMessage(`Given ${itemDisplayName(itemId)} x${amount}`, "ok", 1200);
+      return true;
+    }
+
+    giveAllRecipeItems(count = 32) {
+      const amount = Number.isFinite(count) ? Math.max(1, Math.floor(count)) : 32;
+      const items = this.recipeBook.getKnownItemsSorted();
+      for (let i = 0; i < items.length; i += 1) {
+        this.inventory.add(items[i], amount);
+      }
+      this.updateHUD(true);
+      this.showMessage(`Given all known items x${amount}`, "ok");
     }
 
     bootstrapChunks() {
@@ -2261,25 +3014,36 @@
     }
 
     updateInventoryUI() {
-      for (let i = 0; i < this.invCells.length; i += 1) {
-        const blockId = HOTBAR_DEFAULTS[i % HOTBAR_DEFAULTS.length];
-        const info = BLOCK_INFO[blockId];
-        const count = this.inventory.getCount(blockId);
+      const ownedEntries = Array.from(this.inventory.counts.entries())
+        .filter((entry) => entry[1] > 0)
+        .sort((a, b) => {
+          if (b[1] !== a[1]) {
+            return b[1] - a[1];
+          }
+          return this.recipeBook.getItemName(a[0]).localeCompare(this.recipeBook.getItemName(b[0]));
+        });
 
+      for (let i = 0; i < this.invCells.length; i += 1) {
         const cell = this.invCells[i];
-        cell.innerHTML = `${info.name}<span class="count">${count}</span>`;
+        const entry = ownedEntries[i];
+        if (!entry) {
+          cell.innerHTML = "Empty";
+          continue;
+        }
+        const [itemId, count] = entry;
+        cell.innerHTML = `${this.recipeBook.getItemName(itemId)}<span class="count">${count}</span>`;
       }
 
       for (let i = 0; i < this.craftCells.length; i += 1) {
         const id = this.inventory.craftGrid[i];
-        this.craftCells[i].textContent = id === BLOCK.LOG ? "Log" : "Empty";
+        this.craftCells[i].textContent = id ? this.recipeBook.getItemName(id) : "Empty";
       }
 
       const preview = this.inventory.craftPreview();
-      if (preview.type === BLOCK.AIR) {
+      if (!preview) {
         this.ui.craftResult.textContent = "Output: Empty";
       } else {
-        this.ui.craftResult.textContent = `Output: ${BLOCK_INFO[preview.type].name} x${preview.count}`;
+        this.ui.craftResult.textContent = `Output: ${this.recipeBook.getItemName(preview.itemId)} x${preview.count}`;
       }
     }
 
