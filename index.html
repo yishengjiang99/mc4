@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BrowserCraft</title>
+  <style>
+    :root {
+      --ui-bg: rgba(14, 18, 24, 0.72);
+      --ui-border: rgba(255, 255, 255, 0.24);
+      --ui-text: #ecf2ff;
+      --accent: #72d26f;
+      --danger: #f27f7f;
+      --slot-bg: rgba(33, 39, 52, 0.82);
+      --slot-sel: rgba(114, 210, 111, 0.32);
+      --slot-size: 52px;
+      --font: "Trebuchet MS", "Segoe UI", Tahoma, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: var(--font);
+      color: var(--ui-text);
+    }
+
+    #game {
+      position: fixed;
+      inset: 0;
+    }
+
+    #crosshair {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      width: 18px;
+      height: 18px;
+      margin-left: -9px;
+      margin-top: -9px;
+      pointer-events: none;
+      z-index: 20;
+      opacity: 0.95;
+    }
+
+    #crosshair::before,
+    #crosshair::after {
+      content: "";
+      position: absolute;
+      background: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.75);
+    }
+
+    #crosshair::before {
+      left: 8px;
+      top: 0;
+      width: 2px;
+      height: 18px;
+    }
+
+    #crosshair::after {
+      top: 8px;
+      left: 0;
+      width: 18px;
+      height: 2px;
+    }
+
+    #hud {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 15;
+    }
+
+    .panel {
+      background: var(--ui-bg);
+      border: 1px solid var(--ui-border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      backdrop-filter: blur(4px);
+    }
+
+    #topLeft {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 210px;
+    }
+
+    #stats,
+    #modeLabel,
+    #seedLabel {
+      font-size: 14px;
+      line-height: 1.3;
+      letter-spacing: 0.2px;
+    }
+
+    #healthHunger {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 88px;
+      font-size: 16px;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.65);
+      font-weight: 700;
+    }
+
+    #hotbar {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 7px;
+      pointer-events: none;
+    }
+
+    .hotbar-slot {
+      width: var(--slot-size);
+      height: var(--slot-size);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 9px;
+      background: var(--slot-bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      line-height: 1.1;
+      text-align: center;
+      position: relative;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+    }
+
+    .hotbar-slot.selected {
+      border-color: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 0 0 2px var(--slot-sel);
+      transform: translateY(-2px);
+    }
+
+    .slot-index {
+      position: absolute;
+      top: 3px;
+      left: 5px;
+      font-size: 10px;
+      opacity: 0.8;
+    }
+
+    .slot-count {
+      position: absolute;
+      right: 5px;
+      bottom: 3px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    #inventory {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(680px, 95vw);
+      max-height: 90vh;
+      background: rgba(12, 16, 22, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 14px;
+      padding: 14px;
+      z-index: 40;
+      display: none;
+      pointer-events: auto;
+      overflow: auto;
+    }
+
+    #inventory.visible {
+      display: block;
+    }
+
+    #inventory h2,
+    #inventory h3 {
+      margin: 6px 0 10px;
+      font-weight: 700;
+    }
+
+    #invGrid {
+      display: grid;
+      grid-template-columns: repeat(9, minmax(54px, 1fr));
+      gap: 7px;
+      margin-bottom: 14px;
+    }
+
+    .inv-cell {
+      height: 54px;
+      background: var(--slot-bg);
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      text-align: center;
+      padding: 4px;
+      position: relative;
+    }
+
+    .inv-cell .count {
+      position: absolute;
+      right: 4px;
+      bottom: 2px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    #crafting {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: auto auto;
+      gap: 16px;
+      align-items: start;
+    }
+
+    #craftGrid {
+      display: grid;
+      grid-template-columns: repeat(2, 64px);
+      gap: 8px;
+    }
+
+    .craft-slot {
+      width: 64px;
+      height: 64px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 8px;
+      background: rgba(31, 40, 53, 0.88);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .craft-slot:hover {
+      border-color: rgba(255, 255, 255, 0.8);
+    }
+
+    #craftPanel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 180px;
+    }
+
+    button {
+      border: 1px solid rgba(255, 255, 255, 0.34);
+      border-radius: 8px;
+      background: rgba(40, 50, 67, 0.95);
+      color: var(--ui-text);
+      cursor: pointer;
+      padding: 8px 10px;
+      font-weight: 700;
+      font-family: var(--font);
+    }
+
+    button:hover {
+      background: rgba(58, 72, 94, 0.98);
+    }
+
+    #instructions {
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(circle at 50% 35%, rgba(70, 95, 125, 0.34), rgba(4, 8, 14, 0.86));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      pointer-events: auto;
+    }
+
+    #instructions .card {
+      width: min(780px, 92vw);
+      background: rgba(14, 18, 26, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 16px;
+      padding: 18px 22px;
+      line-height: 1.45;
+      box-shadow: 0 24px 44px rgba(0, 0, 0, 0.42);
+    }
+
+    #instructions h1 {
+      margin: 0 0 10px;
+      font-size: 28px;
+      letter-spacing: 0.4px;
+    }
+
+    #instructions p {
+      margin: 8px 0;
+      font-size: 15px;
+      color: rgba(239, 246, 255, 0.93);
+    }
+
+    #instructions strong {
+      color: #fff;
+    }
+
+    #instructions .hint {
+      color: rgba(211, 228, 253, 0.9);
+      font-size: 14px;
+    }
+
+    #instructions.hidden {
+      display: none;
+    }
+
+    #message {
+      position: fixed;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 45;
+      padding: 9px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      background: rgba(16, 21, 31, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.32);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+    }
+
+    #message.show {
+      opacity: 1;
+    }
+
+    .ok {
+      color: var(--accent);
+    }
+
+    .warn {
+      color: var(--danger);
+    }
+
+    @media (max-width: 760px) {
+      :root {
+        --slot-size: 44px;
+      }
+
+      #invGrid {
+        grid-template-columns: repeat(6, minmax(42px, 1fr));
+      }
+
+      #crafting {
+        grid-template-columns: 1fr;
+      }
+
+      #healthHunger {
+        bottom: 76px;
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+
+  <div id="hud">
+    <div id="topLeft">
+      <div id="stats" class="panel">FPS: --</div>
+      <div id="modeLabel" class="panel">Mode: Survival</div>
+      <div id="seedLabel" class="panel">Seed: --</div>
+    </div>
+    <div id="healthHunger">Health: 10❤ | Hunger: 10🍗</div>
+  </div>
+
+  <div id="crosshair"></div>
+
+  <div id="hotbar"></div>
+
+  <div id="inventory">
+    <h2>Inventory</h2>
+    <div id="invGrid"></div>
+    <h3>Crafting 2x2</h3>
+    <div id="crafting">
+      <div id="craftGrid"></div>
+      <div id="craftPanel">
+        <div id="craftResult" class="panel">Output: Empty</div>
+        <button id="craftBtn" type="button">Craft Output</button>
+        <div class="panel">Recipe: any number of <strong>Logs</strong> in grid -> <strong>4x Planks per log</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="instructions">
+    <div class="card">
+      <h1>BrowserCraft</h1>
+      <p><strong>Click to play</strong> • WASD move • Mouse look • Left click break • Right click place • 1-9 select block • E inventory</p>
+      <p><strong>Space</strong> jump • <strong>Shift</strong> sneak/crouch • <strong>G</strong> toggle Survival/Creative • <strong>F</strong> toggle flying in Creative • <strong>T</strong> day/night speed toggle</p>
+      <p class="hint">Explore, mine, build, and shape the world. Modified chunks and player position are saved locally by seed.</p>
+      <button id="playBtn" type="button">Click To Play</button>
+    </div>
+  </div>
+
+  <div id="message"></div>
+
+  <script>
+    (function bootstrapBrowserCraft() {
+      const threeCdnUrl = "https://unpkg.com/three@0.149.0/build/three.min.js";
+      const threeLocalUrl = "./vendor/three.min.js";
+
+      function loadScript(src) {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = false;
+          script.onload = resolve;
+          script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+          document.body.appendChild(script);
+        });
+      }
+
+      async function start() {
+        try {
+          await loadScript(threeCdnUrl);
+        } catch (cdnErr) {
+          console.warn("CDN Three.js load failed, using local fallback.", cdnErr);
+          try {
+            await loadScript(threeLocalUrl);
+          } catch (localErr) {
+            const msg = document.getElementById("message");
+            if (msg) {
+              msg.textContent = "Failed to load Three.js from CDN and local fallback.";
+              msg.className = "show warn";
+            }
+            console.error("Three.js failed to load from both sources.", localErr);
+            return;
+          }
+        }
+
+        await loadScript("./main.js");
+      }
+
+      start();
+    })();
+  </script>
+</body>
+</html>

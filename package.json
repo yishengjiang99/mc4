@@ -1,0 +1,15 @@
+{
+  "name": "browsercraft",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BrowserCraft regression tests with Playwright",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed --project=chromium",
+    "test:e2e:debug": "playwright test --project=chromium --debug"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "three": "^0.161.0"
+  }
+}
