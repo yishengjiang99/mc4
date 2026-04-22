@@ -61,7 +61,7 @@ This runs:
 - `Right Click`: place selected block
 - `1-9`: select hotbar block
 - `E`: open/close inventory + crafting
-- `Click crafting slot`: cycle through owned items in that slot
+- `Drag and drop`: move items between inventory and crafting grid
 - `G`: toggle Survival / Creative mode
 - `F`: toggle flying (Creative)
 - `Double-tap Space`: toggle flying (Creative)
@@ -92,7 +92,7 @@ Recipe system:
 - Imports all JSON recipes from `data/minecraft/recipe` (`1470` files) into `data/recipes.generated.js`
 - Supports shaped, shapeless, stonecutting, smelting/blasting/smoking/campfire, smithing transform/trim, and transmute recipes
 - Includes practical approximations for special vanilla recipe types (fireworks, map cloning/extending, armor dye, repair, banner/shield decoration, decorated pot)
-- Click a crafting slot to cycle through items you own, then click **Craft Output**
+- Drag items from inventory into the crafting grid, then click **Craft Output**
 
 ## Project Structure
 
@@ -153,7 +153,7 @@ python3 tools/import_minecraft_recipes.py \
 - Three.js loads from CDN first, then local fallback (`vendor/three.min.js`) for offline/restricted environments.
 - Tree generation is deterministic and chunk-safe but still basic.
 - Water is static (visual only, no fluid simulation).
-- Inventory UI is intentionally minimal (no drag/drop stack management).
+- Inventory UI is intentionally minimal (single-item drag/drop, no full stack split/merge UX).
 - Some special recipes are approximated (no full NBT/state simulation).
 - Caves/ores are simple noise-driven generation, not full Minecraft parity.
 - localStorage size limits can cap very large modified-world saves.

@@ -55,11 +55,13 @@ test.describe('BrowserCraft basic regression', () => {
     await page.keyboard.press('KeyE');
     await expect(page.locator('#inventory.visible')).toBeVisible();
 
+    const craftSlots = page.locator('#craftGrid .craft-slot');
+    const logCell = page.locator('#invGrid .inv-cell', { hasText: 'Log' }).first();
+    await expect(logCell).toBeVisible();
+    await logCell.dragTo(craftSlots.first());
+
     const craftTarget = await page.evaluate(() => {
       const g = window.__BROWSERCRAFT__;
-      g.inventory.craftGrid = new Array(9).fill(null);
-      g.inventory.craftGrid[0] = 'minecraft:oak_log';
-      g.updateInventoryUI();
       const preview = g.inventory.craftPreview();
       return {
         itemId: preview ? preview.itemId : null,

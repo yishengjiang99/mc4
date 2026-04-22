@@ -2553,6 +2553,145 @@
       });
     }
 
+    setDragPayload(event, payload) {
+      if (!event.dataTransfer) {
+        return;
+      }
+      const raw = JSON.stringify(payload);
+      event.dataTransfer.setData(this.dragMime, raw);
+      event.dataTransfer.setData("text/plain", raw);
+    }
+
+    getDragPayload(event) {
+      if (!event.dataTransfer) {
+        return null;
+      }
+      const raw = event.dataTransfer.getData(this.dragMime) || event.dataTransfer.getData("text/plain");
+      if (!raw) {
+        return null;
+      }
+      try {
+        const payload = JSON.parse(raw);
+        if (!payload || typeof payload !== "object") {
+          return null;
+        }
+        return payload;
+      } catch (_err) {
+        return null;
+      }
+    }
+
+    canAssignCraftItem(index, itemId) {
+      if (!itemId) {
+        return false;
+      }
+      const assigned = this.inventory.countAssigned(itemId, index);
+      return assigned < this.inventory.getCount(itemId);
+    }
+
+    handleInventoryDragStart(event, index) {
+      const itemId = this.invCellItemIds[index];
+      if (!itemId || !event.dataTransfer) {
+        event.preventDefault();
+        return;
+      }
+      this.setDragPayload(event, {
+        source: "inventory",
+        itemId,
+        invIndex: index,
+      });
+      event.dataTransfer.effectAllowed = "copy";
+      event.currentTarget.classList.add("dragging");
+    }
+
+    handleCraftDragStart(event, index) {
+      const itemId = this.inventory.craftGrid[index];
+      if (!itemId || !event.dataTransfer) {
+        event.preventDefault();
+        return;
+      }
+      this.setDragPayload(event, {
+        source: "craft",
+        itemId,
+        craftIndex: index,
+      });
+      event.dataTransfer.effectAllowed = "move";
+      event.currentTarget.classList.add("dragging");
+    }
+
+    handleDragEnd(event) {
+      if (event.currentTarget && event.currentTarget.classList) {
+        event.currentTarget.classList.remove("dragging");
+      }
+    }
+
+    handleCraftDragOver(event) {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "copy";
+      }
+    }
+
+    handleInventoryDragOver(event) {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+    }
+
+    handleCraftDrop(event, targetIndex) {
+      event.preventDefault();
+      const payload = this.getDragPayload(event);
+      if (!payload) {
+        return;
+      }
+
+      if (payload.source === "inventory") {
+        if (!this.canAssignCraftItem(targetIndex, payload.itemId)) {
+          return;
+        }
+        this.inventory.craftGrid[targetIndex] = payload.itemId;
+        this.updateInventoryUI();
+        return;
+      }
+
+      if (payload.source === "craft" && Number.isInteger(payload.craftIndex)) {
+        const sourceIndex = payload.craftIndex;
+        if (sourceIndex < 0 || sourceIndex >= this.inventory.craftGrid.length) {
+          return;
+        }
+        if (sourceIndex === targetIndex) {
+          return;
+        }
+
+        const sourceItem = this.inventory.craftGrid[sourceIndex];
+        if (!sourceItem) {
+          return;
+        }
+        const targetItem = this.inventory.craftGrid[targetIndex];
+        this.inventory.craftGrid[targetIndex] = sourceItem;
+        this.inventory.craftGrid[sourceIndex] = targetItem || null;
+        this.updateInventoryUI();
+      }
+    }
+
+    handleInventoryDrop(event, _targetIndex) {
+      event.preventDefault();
+      const payload = this.getDragPayload(event);
+      if (!payload) {
+        return;
+      }
+
+      if (payload.source === "craft" && Number.isInteger(payload.craftIndex)) {
+        const sourceIndex = payload.craftIndex;
+        if (sourceIndex < 0 || sourceIndex >= this.inventory.craftGrid.length) {
+          return;
+        }
+        this.inventory.craftGrid[sourceIndex] = null;
+        this.updateInventoryUI();
+      }
+    }
+
     bindEvents() {
       window.addEventListener("resize", () => {
         this.camera.aspect = window.innerWidth / window.innerHeight;
@@ -3062,16 +3201,24 @@
         const cell = this.invCells[i];
         const entry = ownedEntries[i];
         if (!entry) {
+          this.invCellItemIds[i] = null;
           cell.innerHTML = "Empty";
+          cell.draggable = false;
+          cell.classList.remove("draggable");
           continue;
         }
         const [itemId, count] = entry;
+        this.invCellItemIds[i] = itemId;
         cell.innerHTML = `${this.recipeBook.getItemName(itemId)}<span class="count">${count}</span>`;
+        cell.draggable = true;
+        cell.classList.add("draggable");
       }
 
       for (let i = 0; i < this.craftCells.length; i += 1) {
         const id = this.inventory.craftGrid[i];
         this.craftCells[i].textContent = id ? this.recipeBook.getItemName(id) : "Empty";
+        this.craftCells[i].draggable = !!id;
+        this.craftCells[i].classList.toggle("filled", !!id);
       }
 
       const preview = this.inventory.craftPreview();
