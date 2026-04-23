@@ -25,6 +25,135 @@
     CRAFTING_TABLE: 12,
   };
 
+  // Texture-inspired paint profiles extracted from Minecraft 1.21.11 block textures
+  // listed in pictues.txt (assets/minecraft/textures/block/*.png).
+  // We emulate the style procedurally with tone bands + grain while still using vertex colors.
+  const BLOCK_PAINT_STYLE = {
+    [BLOCK.GRASS]: {
+      top: {
+        texture: "assets/minecraft/textures/block/grass_block_top.png",
+        baseColor: 0x5ea947,
+        bands: [0.884, 0.993, 1.156],
+        contrast: 0.069,
+      },
+      side: {
+        texture: "assets/minecraft/textures/block/grass_block_side.png",
+        baseColor: 0x7f6b42,
+        bands: [0.724, 0.969, 1.358],
+        contrast: 0.119,
+      },
+      bottom: {
+        texture: "assets/minecraft/textures/block/dirt.png",
+        baseColor: 0x8a5d34,
+        bands: [0.797, 0.979, 1.265],
+        contrast: 0.09,
+      },
+    },
+    [BLOCK.DIRT]: {
+      all: {
+        texture: "assets/minecraft/textures/block/dirt.png",
+        bands: [0.797, 0.979, 1.265],
+        contrast: 0.09,
+      },
+    },
+    [BLOCK.STONE]: {
+      all: {
+        texture: "assets/minecraft/textures/block/stone.png",
+        bands: [0.905, 1.008, 1.087],
+        contrast: 0.05,
+      },
+    },
+    [BLOCK.LOG]: {
+      top: {
+        texture: "assets/minecraft/textures/block/oak_log_top.png",
+        baseColor: 0x977a49,
+        bands: [0.702, 1.112, 1.21],
+        contrast: 0.121,
+      },
+      side: {
+        texture: "assets/minecraft/textures/block/oak_log.png",
+        baseColor: 0x6d5533,
+        bands: [0.728, 1.049, 1.258],
+        contrast: 0.084,
+      },
+      bottom: {
+        texture: "assets/minecraft/textures/block/oak_log_top.png",
+        baseColor: 0x977a49,
+        bands: [0.702, 1.112, 1.21],
+        contrast: 0.121,
+      },
+    },
+    [BLOCK.LEAVES]: {
+      all: {
+        texture: "assets/minecraft/textures/block/oak_leaves.png",
+        bands: [0.751, 1.021, 1.267],
+        contrast: 0.125,
+      },
+    },
+    [BLOCK.WATER]: {
+      all: {
+        texture: "assets/minecraft/textures/block/water_still.png",
+        bands: [0.932, 0.977, 1.107],
+        contrast: 0.069,
+      },
+    },
+    [BLOCK.SAND]: {
+      all: {
+        texture: "assets/minecraft/textures/block/sand.png",
+        bands: [0.951, 0.999, 1.059],
+        contrast: 0.05,
+      },
+    },
+    [BLOCK.PLANKS]: {
+      all: {
+        texture: "assets/minecraft/textures/block/oak_planks.png",
+        bands: [0.788, 1.065, 1.164],
+        contrast: 0.097,
+      },
+    },
+    [BLOCK.COBBLE]: {
+      all: {
+        texture: "assets/minecraft/textures/block/cobblestone.png",
+        bands: [0.764, 0.992, 1.288],
+        contrast: 0.115,
+      },
+    },
+    [BLOCK.COAL_ORE]: {
+      all: {
+        texture: "assets/minecraft/textures/block/coal_ore.png",
+        bands: [0.67, 1.105, 1.246],
+        contrast: 0.118,
+      },
+    },
+    [BLOCK.IRON_ORE]: {
+      all: {
+        texture: "assets/minecraft/textures/block/iron_ore.png",
+        bands: [0.865, 0.992, 1.174],
+        contrast: 0.076,
+      },
+    },
+    [BLOCK.CRAFTING_TABLE]: {
+      top: {
+        texture: "assets/minecraft/textures/block/crafting_table_top.png",
+        baseColor: 0x78492a,
+        bands: [0.489, 1.072, 1.514],
+        contrast: 0.152,
+      },
+      side: {
+        texture: "assets/minecraft/textures/block/crafting_table_side.png",
+        baseColor: 0x81673f,
+        bands: [0.372, 1.197, 1.489],
+        contrast: 0.209,
+      },
+      bottom: {
+        texture: "assets/minecraft/textures/block/oak_planks.png",
+        baseColor: 0xa2834f,
+        bands: [0.788, 1.065, 1.164],
+        contrast: 0.097,
+      },
+    },
+  };
+
   const BLOCK_INFO = {
     [BLOCK.AIR]: {
       id: BLOCK.AIR,
@@ -301,6 +430,23 @@
     ];
   }
 
+  function facePaintKey(face) {
+    if (face.dir[1] > 0) {
+      return "top";
+    }
+    if (face.dir[1] < 0) {
+      return "bottom";
+    }
+    return "side";
+  }
+
+  function hash4ToUnit(a, b, c, d) {
+    let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(c | 0, 700001) ^ Math.imul(d | 0, 951274213);
+    h = (h ^ (h >>> 13)) >>> 0;
+    h = Math.imul(h, 1274126177) >>> 0;
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+  }
+
   function smoothstep(t) {
     return t * t * (3 - 2 * t);
   }
@@ -548,6 +694,7 @@
       this.recipes = Array.isArray(this.data.recipes) ? this.data.recipes.slice() : [];
       this.knownItems = new Set(Array.isArray(this.data.items) ? this.data.items : []);
       this.tags = new Map();
+      this.recipesByResult = new Map();
 
       const rawTags = this.data.tags && typeof this.data.tags === "object" ? this.data.tags : {};
       for (const [tagName, values] of Object.entries(rawTags)) {
@@ -561,6 +708,8 @@
           this.knownItems.add(itemId);
         }
       }
+
+      this.buildRecipeResultIndex();
     }
 
     makeFallbackData() {
@@ -597,6 +746,96 @@
 
     getItemName(itemId) {
       return itemDisplayName(itemId);
+    }
+
+    getRecipeResultId(recipe) {
+      if (!recipe || typeof recipe !== "object") {
+        return null;
+      }
+      if (recipe.result && typeof recipe.result.id === "string") {
+        return recipe.result.id;
+      }
+      if (typeof recipe.result_like === "string" && recipe.result_like.length > 0) {
+        return recipe.result_like;
+      }
+      return null;
+    }
+
+    buildRecipeResultIndex() {
+      this.recipesByResult.clear();
+      for (let i = 0; i < this.recipes.length; i += 1) {
+        const recipe = this.recipes[i];
+        const resultId = this.getRecipeResultId(recipe);
+        if (!resultId) {
+          continue;
+        }
+        let list = this.recipesByResult.get(resultId);
+        if (!list) {
+          list = [];
+          this.recipesByResult.set(resultId, list);
+        }
+        list.push(recipe);
+        this.knownItems.add(resultId);
+      }
+    }
+
+    getRecipesByResult(itemId) {
+      return this.recipesByResult.get(itemId) || [];
+    }
+
+    getCraftableOutputsSorted() {
+      return Array.from(this.recipesByResult.keys()).sort((a, b) => this.getItemName(a).localeCompare(this.getItemName(b)));
+    }
+
+    expandIngredientOptions(options, limit = 80) {
+      if (!Array.isArray(options) || options.length === 0) {
+        return [];
+      }
+
+      const out = [];
+      const seen = new Set();
+      const addCandidate = (itemId) => {
+        if (!itemId || seen.has(itemId)) {
+          return;
+        }
+        seen.add(itemId);
+        out.push(itemId);
+      };
+
+      for (let i = 0; i < options.length; i += 1) {
+        const token = options[i];
+        if (!token || typeof token !== "string") {
+          continue;
+        }
+        if (token.startsWith("#")) {
+          const tagName = token.slice(1);
+          const expanded = this.tags.get(tagName);
+          if (expanded && expanded.size > 0) {
+            for (const itemId of expanded.values()) {
+              addCandidate(itemId);
+              if (out.length >= limit) {
+                return out;
+              }
+            }
+          } else {
+            for (const itemId of this.knownItems.values()) {
+              if (this.matchTagHeuristic(tagName, itemId)) {
+                addCandidate(itemId);
+                if (out.length >= limit) {
+                  return out;
+                }
+              }
+            }
+          }
+        } else {
+          addCandidate(token);
+          if (out.length >= limit) {
+            return out;
+          }
+        }
+      }
+
+      return out;
     }
 
     normalizeGrid(rawGrid) {
@@ -1618,7 +1857,7 @@
               }
 
               const target = info.transparent ? transparent : opaque;
-              const color = this.world.getFaceColor(blockId, face, y);
+              const color = this.world.getFaceColor(blockId, face, wx, y, wz, f);
               let vertexOffset;
               if (info.transparent) {
                 vertexOffset = transVertexCount;
@@ -1920,12 +2159,48 @@
       return b.transparent || !b.solid;
     }
 
-    getFaceColor(blockId, face, y) {
-      const rgb = colorToRGB(BLOCK_INFO[blockId].color);
+    getFaceColor(blockId, face, wx, y, wz, faceIndex = 0) {
+      const style = BLOCK_PAINT_STYLE[blockId];
+      const faceStyle = style ? style[facePaintKey(face)] || style.all || null : null;
+      const baseColor = faceStyle && typeof faceStyle.baseColor === "number" ? faceStyle.baseColor : BLOCK_INFO[blockId].color;
+      const rgb = colorToRGB(baseColor);
       let shade = face.shade;
+      let textureMul = 1.0;
+
+      if (faceStyle) {
+        const toneHash = hash4ToUnit(
+          wx + faceIndex * 17,
+          y + blockId * 23,
+          wz - faceIndex * 19,
+          this.seed ^ (blockId * 131 + faceIndex * 29)
+        );
+        const toneIndex = toneHash < 0.35 ? 0 : toneHash < 0.7 ? 1 : 2;
+        const bands = faceStyle.bands || [0.9, 1.0, 1.1];
+        textureMul = bands[toneIndex];
+
+        const grainHash =
+          hash4ToUnit(
+            wx * 5 + faceIndex * 37,
+            y * 7 + blockId * 41,
+            wz * 5 - faceIndex * 43,
+            this.seed ^ 0x02f6e2b1
+          ) - 0.5;
+        const macroHash =
+          hash4ToUnit(
+            (wx >> 1) + blockId * 47,
+            (y >> 1) + faceIndex * 53,
+            (wz >> 1) + blockId * 59,
+            this.seed ^ 0x41c64e6d
+          ) - 0.5;
+
+        const contrast = faceStyle.contrast || 0.08;
+        textureMul += grainHash * contrast * 0.8;
+        textureMul += macroHash * contrast * 0.45;
+        textureMul = clamp(textureMul, 0.62, 1.42);
+      }
 
       if (blockId === BLOCK.GRASS && face.dir[1] === 1) {
-        shade *= 1.08;
+        shade *= 1.05;
       }
       if (blockId === BLOCK.DIRT && face.dir[1] === 1) {
         shade *= 0.95;
@@ -1937,10 +2212,12 @@
         shade *= 0.9 + (Math.sin(y * 0.3) * 0.03 + 0.03);
       }
 
+      const finalShade = shade * textureMul;
+
       return [
-        clamp(rgb[0] * shade, 0, 1),
-        clamp(rgb[1] * shade, 0, 1),
-        clamp(rgb[2] * shade, 0, 1),
+        clamp(rgb[0] * finalShade, 0, 1),
+        clamp(rgb[1] * finalShade, 0, 1),
+        clamp(rgb[2] * finalShade, 0, 1),
       ];
     }
 
@@ -2475,6 +2752,7 @@
       this.invCells = [];
       this.invCellItemIds = [];
       this.craftCells = [];
+      this.selectedCraftItemId = null;
       this.dragMime = "application/x-browsercraft-item";
 
       this.buildUI();
@@ -2563,6 +2841,9 @@
         cell.addEventListener("drop", (e) => {
           this.handleInventoryDrop(e, i);
         });
+        cell.addEventListener("click", () => {
+          this.handleInventoryCellClick(i);
+        });
         this.ui.invGrid.appendChild(cell);
         this.invCells.push(cell);
         this.invCellItemIds.push(null);
@@ -2585,6 +2866,9 @@
         });
         slot.addEventListener("drop", (e) => {
           this.handleCraftDrop(e, i);
+        });
+        slot.addEventListener("click", () => {
+          this.handleCraftSlotClick(i);
         });
         slot.addEventListener("contextmenu", (e) => {
           e.preventDefault();
@@ -2676,6 +2960,41 @@
       const activeCraftIndexes = this.getActiveCraftIndexes();
       const assigned = this.inventory.countAssigned(itemId, index, activeCraftIndexes);
       return assigned < this.inventory.getCount(itemId);
+    }
+
+    handleInventoryCellClick(index) {
+      if (index < 0 || index >= this.invCellItemIds.length) {
+        return;
+      }
+      const itemId = this.invCellItemIds[index];
+      if (!itemId) {
+        this.selectedCraftItemId = null;
+        this.updateInventoryUI();
+        return;
+      }
+
+      if (this.selectedCraftItemId === itemId) {
+        this.selectedCraftItemId = null;
+      } else {
+        this.selectedCraftItemId = itemId;
+      }
+      this.updateInventoryUI();
+    }
+
+    handleCraftSlotClick(index) {
+      if (!this.isCraftSlotUsable(index)) {
+        return;
+      }
+      if (!this.selectedCraftItemId) {
+        return;
+      }
+
+      if (!this.canAssignCraftItem(index, this.selectedCraftItemId)) {
+        return;
+      }
+
+      this.inventory.craftGrid[index] = this.selectedCraftItemId;
+      this.updateInventoryUI();
     }
 
     handleInventoryDragStart(event, index) {
@@ -2974,6 +3293,7 @@
         this.controlsEnabled = false;
       } else {
         this.setCraftingContext("inventory");
+        this.selectedCraftItemId = null;
         if (this.testMode) {
           this.controlsEnabled = true;
           this.ui.instructions.classList.add("hidden");
@@ -3347,6 +3667,10 @@
       const activeCraftSet = new Set(activeCraftIndexes);
       const usingCraftingTable = this.craftingContext === "table";
 
+      if (this.selectedCraftItemId && this.inventory.getCount(this.selectedCraftItemId) <= 0) {
+        this.selectedCraftItemId = null;
+      }
+
       const ownedEntries = Array.from(this.inventory.counts.entries())
         .filter((entry) => entry[1] > 0)
         .sort((a, b) => {
@@ -3364,6 +3688,7 @@
           cell.innerHTML = "Empty";
           cell.draggable = false;
           cell.classList.remove("draggable");
+          cell.classList.remove("selected");
           continue;
         }
         const [itemId, count] = entry;
@@ -3371,6 +3696,7 @@
         cell.innerHTML = `${this.recipeBook.getItemName(itemId)}<span class="count">${count}</span>`;
         cell.draggable = true;
         cell.classList.add("draggable");
+        cell.classList.toggle("selected", itemId === this.selectedCraftItemId);
       }
 
       if (this.ui.craftTitle) {
@@ -3378,8 +3704,8 @@
       }
       if (this.ui.craftHint) {
         this.ui.craftHint.textContent = usingCraftingTable
-          ? "3x3 crafting is active. Drag items in, then click Craft Output."
-          : "Only inventory 2x2 crafting is active here. Place and right-click a crafting table for 3x3 crafting.";
+          ? "3x3 crafting is active. Drag or click-select items, then click slots and Craft Output."
+          : "2x2 crafting is active here. Drag or click-select items, then click slots. Place/right-click a crafting table for 3x3.";
       }
       if (this.ui.craftGrid) {
         this.ui.craftGrid.classList.toggle("inventory-2x2", !usingCraftingTable);
