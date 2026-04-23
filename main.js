@@ -59,8 +59,9 @@
     [BLOCK.STONE]: {
       all: {
         texture: "assets/minecraft/textures/block/stone.png",
-        bands: [0.905, 1.008, 1.087],
-        contrast: 0.05,
+        baseColor: 0x7e838a,
+        bands: [0.74, 0.98, 1.26],
+        contrast: 0.18,
       },
     },
     [BLOCK.LOG]: {
@@ -1857,7 +1858,6 @@
               }
 
               const target = info.transparent ? transparent : opaque;
-              const color = this.world.getFaceColor(blockId, face, wx, y, wz, f);
               let vertexOffset;
               if (info.transparent) {
                 vertexOffset = transVertexCount;
@@ -1869,6 +1869,14 @@
 
               for (let c = 0; c < 4; c += 1) {
                 const corner = face.corners[c];
+                const color = this.world.getFaceColor(
+                  blockId,
+                  face,
+                  wx + corner[0],
+                  y + corner[1],
+                  wz + corner[2],
+                  f + c * 17
+                );
                 target.positions.push(lx + corner[0], y + corner[1], lz + corner[2]);
                 target.normals.push(face.dir[0], face.dir[1], face.dir[2]);
                 target.colors.push(color[0], color[1], color[2]);
