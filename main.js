@@ -2609,12 +2609,12 @@
         const flyUp = keys.Space || keys.Numpad0;
         const flyDown = keys.KeyX;
         const vertical = (flyUp ? 1 : 0) - (flyDown ? 1 : 0);
-
-        this.position.x += moveVec.x * speed * dt;
-        this.position.z += moveVec.z * speed * dt;
-        this.position.y += vertical * speed * dt;
         this.velocity.set(0, 0, 0);
-        this.onGround = false;
+        this.moveWithCollisions(
+          moveVec.x * speed * dt,
+          vertical * speed * dt,
+          moveVec.z * speed * dt
+        );
         this.updateCamera();
         return;
       }
@@ -3587,6 +3587,9 @@
 
         if (e.code === "Escape") {
           e.preventDefault();
+          if (this.chatOpen) {
+            this.closeChat(true);
+          }
           if (this.inventoryOpen) {
             this.toggleInventory(false);
           }
@@ -3597,6 +3600,14 @@
         }
 
         if (isTypingInField) {
+          return;
+        }
+
+        if (e.code === "Slash") {
+          if (!this.inventoryOpen) {
+            e.preventDefault();
+            this.openChat("/");
+          }
           return;
         }
 
@@ -3662,6 +3673,20 @@
       document.addEventListener("keyup", (e) => {
         this.keys[e.code] = false;
       });
+
+      if (this.ui.chatInput) {
+        this.ui.chatInput.addEventListener("keydown", (e) => {
+          if (e.code === "Enter") {
+            e.preventDefault();
+            this.handleChatSubmit();
+            return;
+          }
+          if (e.code === "Escape") {
+            e.preventDefault();
+            this.closeChat(true);
+          }
+        });
+      }
 
       this.ui.playBtn.addEventListener("click", () => {
         this.lockPointer();
@@ -3756,6 +3781,9 @@
 
     toggleInventory(forceState = null, context = "inventory", tablePos = null) {
       const next = forceState === null ? !this.inventoryOpen : !!forceState;
+      if (next && this.chatOpen) {
+        this.closeChat(false);
+      }
       this.inventoryOpen = next;
       this.ui.inventory.classList.toggle("visible", this.inventoryOpen);
 
