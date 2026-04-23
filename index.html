@@ -218,6 +218,12 @@
       cursor: grab;
     }
 
+    .inv-cell.selected {
+      border-color: rgba(255, 255, 255, 0.95);
+      box-shadow: 0 0 0 2px var(--slot-sel);
+      background: rgba(49, 68, 47, 0.92);
+    }
+
     .inv-cell.dragging,
     .craft-slot.dragging {
       opacity: 0.58;
@@ -267,6 +273,13 @@
       background: rgba(54, 71, 94, 0.96);
     }
 
+    .craft-slot.missing {
+      border-color: rgba(242, 127, 127, 0.95);
+      background: rgba(92, 44, 44, 0.92);
+      color: rgba(255, 228, 228, 0.98);
+      box-shadow: 0 0 0 1px rgba(242, 127, 127, 0.35) inset;
+    }
+
     .craft-slot:hover {
       border-color: rgba(255, 255, 255, 0.8);
     }
@@ -286,6 +299,28 @@
       flex-direction: column;
       gap: 8px;
       min-width: 180px;
+    }
+
+    .craft-label {
+      font-size: 13px;
+      color: rgba(224, 236, 255, 0.9);
+    }
+
+    .craft-output-input {
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.32);
+      border-radius: 8px;
+      background: rgba(21, 28, 39, 0.95);
+      color: var(--ui-text);
+      padding: 8px 10px;
+      font-size: 13px;
+      font-family: var(--font);
+    }
+
+    .craft-output-input:focus {
+      outline: none;
+      border-color: rgba(114, 210, 111, 0.92);
+      box-shadow: 0 0 0 2px rgba(114, 210, 111, 0.25);
     }
 
     button {
@@ -369,6 +404,37 @@
       opacity: 1;
     }
 
+    #chatOverlay {
+      position: fixed;
+      left: 50%;
+      bottom: 20px;
+      transform: translateX(-50%);
+      z-index: 46;
+      width: min(760px, 92vw);
+      display: none;
+      pointer-events: auto;
+    }
+
+    #chatOverlay.visible {
+      display: block;
+    }
+
+    #chatInput {
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-radius: 8px;
+      background: rgba(12, 16, 24, 0.6);
+      color: var(--ui-text);
+      font-family: var(--font);
+      font-size: 15px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    #chatInput::placeholder {
+      color: rgba(236, 242, 255, 0.72);
+    }
+
     .ok {
       color: var(--accent);
     }
@@ -420,6 +486,9 @@
     <div id="crafting">
       <div id="craftGrid"></div>
       <div id="craftPanel">
+        <label for="craftOutputInput" class="craft-label">Output (Auto Complete)</label>
+        <input id="craftOutputInput" class="craft-output-input" type="text" list="craftOutputList" placeholder="Type an item to autofill recipe" autocomplete="off" />
+        <datalist id="craftOutputList"></datalist>
         <div id="craftResult" class="panel">Output: Empty</div>
         <button id="craftBtn" type="button">Craft Output</button>
         <div id="craftHint" class="panel">Use inventory 2x2 crafting here. Place a crafting table, then right-click it for 3x3 crafting.</div>
@@ -430,15 +499,18 @@
   <div id="instructions">
     <div class="card">
       <h1>BrowserCraft</h1>
-      <p><strong>Click to play</strong> • WASD move • Mouse look • Left click break • Right click place • 1-9 select block • E inventory</p>
+      <p><strong>Click to play</strong> • W/S or ↑/↓ move • Q/E strafe • A/D or ←/→ turn • Mouse look • Left click break • Right click place • 1-9 select block • I inventory • Esc closes menus</p>
       <p><strong>Crafting Table:</strong> Craft with 2x2 in inventory, then place/right-click a crafting table block for full 3x3 crafting.</p>
-      <p><strong>Space</strong> jump • <strong>Shift</strong> sneak/crouch • <strong>G</strong> toggle Survival/Creative • <strong>F</strong> toggle flying in Creative • <strong>T</strong> day/night speed toggle</p>
+      <p><strong>Space</strong> jump / fly up • <strong>X</strong> fly down • <strong>Shift</strong> sneak/crouch • <strong>G</strong> toggle Survival/Creative • <strong>F</strong> toggle flying in Creative • <strong>T</strong> day/night speed toggle</p>
       <p class="hint">Explore, mine, build, and shape the world. Modified chunks and player position are saved locally by seed.</p>
       <button id="playBtn" type="button">Click To Play</button>
     </div>
   </div>
 
   <div id="message"></div>
+  <div id="chatOverlay">
+    <input id="chatInput" type="text" placeholder="Type /respawn then press Enter" autocomplete="off" spellcheck="false" />
+  </div>
 
   <script>
     (function bootstrapBrowserCraft() {

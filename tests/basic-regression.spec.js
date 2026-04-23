@@ -52,7 +52,7 @@ test.describe('BrowserCraft basic regression', () => {
     await expect(page.locator('#modeLabel')).toContainText('Creative');
 
     // Inventory + crafting flow.
-    await page.keyboard.press('KeyE');
+    await page.keyboard.press('KeyI');
     await expect(page.locator('#inventory.visible')).toBeVisible();
     await expect(page.locator('#craftTitle')).toContainText('2x2');
 
@@ -81,7 +81,7 @@ test.describe('BrowserCraft basic regression', () => {
       })
       .toBeGreaterThan(craftTarget.countBefore);
 
-    await page.keyboard.press('KeyE');
+    await page.keyboard.press('KeyI');
     await expect(page.locator('#inventory.visible')).toHaveCount(0);
 
     // Place and use a crafting table, then verify 3x3 context opens.
@@ -128,7 +128,7 @@ test.describe('BrowserCraft basic regression', () => {
     expect(craftingTableOpen.craftingContext).toBe('table');
     await expect(page.locator('#craftTitle')).toContainText('3x3');
 
-    await page.keyboard.press('KeyE');
+    await page.keyboard.press('KeyI');
     await expect(page.locator('#inventory.visible')).toHaveCount(0);
 
     // Select slot and move a bit.

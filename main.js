@@ -25,6 +25,136 @@
     CRAFTING_TABLE: 12,
   };
 
+  // Texture-inspired paint profiles extracted from Minecraft 1.21.11 block textures
+  // listed in pictues.txt (assets/minecraft/textures/block/*.png).
+  // We emulate the style procedurally with tone bands + grain while still using vertex colors.
+  const BLOCK_PAINT_STYLE = {
+    [BLOCK.GRASS]: {
+      top: {
+        texture: "assets/minecraft/textures/block/grass_block_top.png",
+        baseColor: 0x5ea947,
+        bands: [0.884, 0.993, 1.156],
+        contrast: 0.069,
+      },
+      side: {
+        texture: "assets/minecraft/textures/block/grass_block_side.png",
+        baseColor: 0x7f6b42,
+        bands: [0.724, 0.969, 1.358],
+        contrast: 0.119,
+      },
+      bottom: {
+        texture: "assets/minecraft/textures/block/dirt.png",
+        baseColor: 0x8a5d34,
+        bands: [0.797, 0.979, 1.265],
+        contrast: 0.09,
+      },
+    },
+    [BLOCK.DIRT]: {
+      all: {
+        texture: "assets/minecraft/textures/block/dirt.png",
+        bands: [0.797, 0.979, 1.265],
+        contrast: 0.09,
+      },
+    },
+    [BLOCK.STONE]: {
+      all: {
+        texture: "assets/minecraft/textures/block/stone.png",
+        baseColor: 0x7e838a,
+        bands: [0.74, 0.98, 1.26],
+        contrast: 0.18,
+      },
+    },
+    [BLOCK.LOG]: {
+      top: {
+        texture: "assets/minecraft/textures/block/oak_log_top.png",
+        baseColor: 0x977a49,
+        bands: [0.702, 1.112, 1.21],
+        contrast: 0.121,
+      },
+      side: {
+        texture: "assets/minecraft/textures/block/oak_log.png",
+        baseColor: 0x6d5533,
+        bands: [0.728, 1.049, 1.258],
+        contrast: 0.084,
+      },
+      bottom: {
+        texture: "assets/minecraft/textures/block/oak_log_top.png",
+        baseColor: 0x977a49,
+        bands: [0.702, 1.112, 1.21],
+        contrast: 0.121,
+      },
+    },
+    [BLOCK.LEAVES]: {
+      all: {
+        texture: "assets/minecraft/textures/block/oak_leaves.png",
+        bands: [0.751, 1.021, 1.267],
+        contrast: 0.125,
+      },
+    },
+    [BLOCK.WATER]: {
+      all: {
+        texture: "assets/minecraft/textures/block/water_still.png",
+        bands: [0.932, 0.977, 1.107],
+        contrast: 0.069,
+      },
+    },
+    [BLOCK.SAND]: {
+      all: {
+        texture: "assets/minecraft/textures/block/sand.png",
+        bands: [0.951, 0.999, 1.059],
+        contrast: 0.05,
+      },
+    },
+    [BLOCK.PLANKS]: {
+      all: {
+        texture: "assets/minecraft/textures/block/oak_planks.png",
+        bands: [0.788, 1.065, 1.164],
+        contrast: 0.097,
+      },
+    },
+    [BLOCK.COBBLE]: {
+      all: {
+        texture: "assets/minecraft/textures/block/cobblestone.png",
+        bands: [0.764, 0.992, 1.288],
+        contrast: 0.115,
+      },
+    },
+    [BLOCK.COAL_ORE]: {
+      all: {
+        texture: "assets/minecraft/textures/block/coal_ore.png",
+        bands: [0.67, 1.105, 1.246],
+        contrast: 0.118,
+      },
+    },
+    [BLOCK.IRON_ORE]: {
+      all: {
+        texture: "assets/minecraft/textures/block/iron_ore.png",
+        bands: [0.865, 0.992, 1.174],
+        contrast: 0.076,
+      },
+    },
+    [BLOCK.CRAFTING_TABLE]: {
+      top: {
+        texture: "assets/minecraft/textures/block/crafting_table_top.png",
+        baseColor: 0x78492a,
+        bands: [0.489, 1.072, 1.514],
+        contrast: 0.152,
+      },
+      side: {
+        texture: "assets/minecraft/textures/block/crafting_table_side.png",
+        baseColor: 0x81673f,
+        bands: [0.372, 1.197, 1.489],
+        contrast: 0.209,
+      },
+      bottom: {
+        texture: "assets/minecraft/textures/block/oak_planks.png",
+        baseColor: 0xa2834f,
+        bands: [0.788, 1.065, 1.164],
+        contrast: 0.097,
+      },
+    },
+  };
+
   const BLOCK_INFO = {
     [BLOCK.AIR]: {
       id: BLOCK.AIR,
@@ -301,6 +431,23 @@
     ];
   }
 
+  function facePaintKey(face) {
+    if (face.dir[1] > 0) {
+      return "top";
+    }
+    if (face.dir[1] < 0) {
+      return "bottom";
+    }
+    return "side";
+  }
+
+  function hash4ToUnit(a, b, c, d) {
+    let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(c | 0, 700001) ^ Math.imul(d | 0, 951274213);
+    h = (h ^ (h >>> 13)) >>> 0;
+    h = Math.imul(h, 1274126177) >>> 0;
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+  }
+
   function smoothstep(t) {
     return t * t * (3 - 2 * t);
   }
@@ -548,6 +695,7 @@
       this.recipes = Array.isArray(this.data.recipes) ? this.data.recipes.slice() : [];
       this.knownItems = new Set(Array.isArray(this.data.items) ? this.data.items : []);
       this.tags = new Map();
+      this.recipesByResult = new Map();
 
       const rawTags = this.data.tags && typeof this.data.tags === "object" ? this.data.tags : {};
       for (const [tagName, values] of Object.entries(rawTags)) {
@@ -561,6 +709,8 @@
           this.knownItems.add(itemId);
         }
       }
+
+      this.buildRecipeResultIndex();
     }
 
     makeFallbackData() {
@@ -597,6 +747,96 @@
 
     getItemName(itemId) {
       return itemDisplayName(itemId);
+    }
+
+    getRecipeResultId(recipe) {
+      if (!recipe || typeof recipe !== "object") {
+        return null;
+      }
+      if (recipe.result && typeof recipe.result.id === "string") {
+        return recipe.result.id;
+      }
+      if (typeof recipe.result_like === "string" && recipe.result_like.length > 0) {
+        return recipe.result_like;
+      }
+      return null;
+    }
+
+    buildRecipeResultIndex() {
+      this.recipesByResult.clear();
+      for (let i = 0; i < this.recipes.length; i += 1) {
+        const recipe = this.recipes[i];
+        const resultId = this.getRecipeResultId(recipe);
+        if (!resultId) {
+          continue;
+        }
+        let list = this.recipesByResult.get(resultId);
+        if (!list) {
+          list = [];
+          this.recipesByResult.set(resultId, list);
+        }
+        list.push(recipe);
+        this.knownItems.add(resultId);
+      }
+    }
+
+    getRecipesByResult(itemId) {
+      return this.recipesByResult.get(itemId) || [];
+    }
+
+    getCraftableOutputsSorted() {
+      return Array.from(this.recipesByResult.keys()).sort((a, b) => this.getItemName(a).localeCompare(this.getItemName(b)));
+    }
+
+    expandIngredientOptions(options, limit = 80) {
+      if (!Array.isArray(options) || options.length === 0) {
+        return [];
+      }
+
+      const out = [];
+      const seen = new Set();
+      const addCandidate = (itemId) => {
+        if (!itemId || seen.has(itemId)) {
+          return;
+        }
+        seen.add(itemId);
+        out.push(itemId);
+      };
+
+      for (let i = 0; i < options.length; i += 1) {
+        const token = options[i];
+        if (!token || typeof token !== "string") {
+          continue;
+        }
+        if (token.startsWith("#")) {
+          const tagName = token.slice(1);
+          const expanded = this.tags.get(tagName);
+          if (expanded && expanded.size > 0) {
+            for (const itemId of expanded.values()) {
+              addCandidate(itemId);
+              if (out.length >= limit) {
+                return out;
+              }
+            }
+          } else {
+            for (const itemId of this.knownItems.values()) {
+              if (this.matchTagHeuristic(tagName, itemId)) {
+                addCandidate(itemId);
+                if (out.length >= limit) {
+                  return out;
+                }
+              }
+            }
+          }
+        } else {
+          addCandidate(token);
+          if (out.length >= limit) {
+            return out;
+          }
+        }
+      }
+
+      return out;
     }
 
     normalizeGrid(rawGrid) {
@@ -1618,7 +1858,6 @@
               }
 
               const target = info.transparent ? transparent : opaque;
-              const color = this.world.getFaceColor(blockId, face, y);
               let vertexOffset;
               if (info.transparent) {
                 vertexOffset = transVertexCount;
@@ -1630,6 +1869,14 @@
 
               for (let c = 0; c < 4; c += 1) {
                 const corner = face.corners[c];
+                const color = this.world.getFaceColor(
+                  blockId,
+                  face,
+                  wx + corner[0],
+                  y + corner[1],
+                  wz + corner[2],
+                  f + c * 17
+                );
                 target.positions.push(lx + corner[0], y + corner[1], lz + corner[2]);
                 target.normals.push(face.dir[0], face.dir[1], face.dir[2]);
                 target.colors.push(color[0], color[1], color[2]);
@@ -1920,12 +2167,48 @@
       return b.transparent || !b.solid;
     }
 
-    getFaceColor(blockId, face, y) {
-      const rgb = colorToRGB(BLOCK_INFO[blockId].color);
+    getFaceColor(blockId, face, wx, y, wz, faceIndex = 0) {
+      const style = BLOCK_PAINT_STYLE[blockId];
+      const faceStyle = style ? style[facePaintKey(face)] || style.all || null : null;
+      const baseColor = faceStyle && typeof faceStyle.baseColor === "number" ? faceStyle.baseColor : BLOCK_INFO[blockId].color;
+      const rgb = colorToRGB(baseColor);
       let shade = face.shade;
+      let textureMul = 1.0;
+
+      if (faceStyle) {
+        const toneHash = hash4ToUnit(
+          wx + faceIndex * 17,
+          y + blockId * 23,
+          wz - faceIndex * 19,
+          this.seed ^ (blockId * 131 + faceIndex * 29)
+        );
+        const toneIndex = toneHash < 0.35 ? 0 : toneHash < 0.7 ? 1 : 2;
+        const bands = faceStyle.bands || [0.9, 1.0, 1.1];
+        textureMul = bands[toneIndex];
+
+        const grainHash =
+          hash4ToUnit(
+            wx * 5 + faceIndex * 37,
+            y * 7 + blockId * 41,
+            wz * 5 - faceIndex * 43,
+            this.seed ^ 0x02f6e2b1
+          ) - 0.5;
+        const macroHash =
+          hash4ToUnit(
+            (wx >> 1) + blockId * 47,
+            (y >> 1) + faceIndex * 53,
+            (wz >> 1) + blockId * 59,
+            this.seed ^ 0x41c64e6d
+          ) - 0.5;
+
+        const contrast = faceStyle.contrast || 0.08;
+        textureMul += grainHash * contrast * 0.8;
+        textureMul += macroHash * contrast * 0.45;
+        textureMul = clamp(textureMul, 0.62, 1.42);
+      }
 
       if (blockId === BLOCK.GRASS && face.dir[1] === 1) {
-        shade *= 1.08;
+        shade *= 1.05;
       }
       if (blockId === BLOCK.DIRT && face.dir[1] === 1) {
         shade *= 0.95;
@@ -1937,10 +2220,12 @@
         shade *= 0.9 + (Math.sin(y * 0.3) * 0.03 + 0.03);
       }
 
+      const finalShade = shade * textureMul;
+
       return [
-        clamp(rgb[0] * shade, 0, 1),
-        clamp(rgb[1] * shade, 0, 1),
-        clamp(rgb[2] * shade, 0, 1),
+        clamp(rgb[0] * finalShade, 0, 1),
+        clamp(rgb[1] * finalShade, 0, 1),
+        clamp(rgb[2] * finalShade, 0, 1),
       ];
     }
 
@@ -2189,6 +2474,7 @@
       this.walkSpeed = 5.2;
       this.crouchSpeed = 2.7;
       this.flySpeed = 9.5;
+      this.turnSpeed = 2.75;
       this.gravity = 26;
       this.jumpVelocity = 8.4;
       this.sensitivity = 0.0023;
@@ -2307,8 +2593,14 @@
         return;
       }
 
-      const forwardInput = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-      const strafeInput = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+      const turnInput = ((keys.KeyD || keys.ArrowRight) ? 1 : 0) - ((keys.KeyA || keys.ArrowLeft) ? 1 : 0);
+      if (turnInput !== 0) {
+        this.yaw -= turnInput * this.turnSpeed * dt;
+        this.updateCameraRotation();
+      }
+
+      const forwardInput = ((keys.KeyW || keys.ArrowUp) ? 1 : 0) - ((keys.KeyS || keys.ArrowDown) ? 1 : 0);
+      const strafeInput = (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0);
 
       const moveVec = new THREE.Vector3();
       if (forwardInput !== 0 || strafeInput !== 0) {
@@ -2322,13 +2614,15 @@
 
       if (this.mode === "creative" && this.flying) {
         const speed = sneakHeld ? this.flySpeed * 0.55 : this.flySpeed;
-        const vertical = (keys.Space ? 1 : 0) - (sneakHeld ? 1 : 0);
-
-        this.position.x += moveVec.x * speed * dt;
-        this.position.z += moveVec.z * speed * dt;
-        this.position.y += vertical * speed * dt;
+        const flyUp = keys.Space || keys.Numpad0;
+        const flyDown = keys.KeyX;
+        const vertical = (flyUp ? 1 : 0) - (flyDown ? 1 : 0);
         this.velocity.set(0, 0, 0);
-        this.onGround = false;
+        this.moveWithCollisions(
+          moveVec.x * speed * dt,
+          vertical * speed * dt,
+          moveVec.z * speed * dt
+        );
         this.updateCamera();
         return;
       }
@@ -2400,12 +2694,16 @@
         invGrid: document.getElementById("invGrid"),
         craftGrid: document.getElementById("craftGrid"),
         craftTitle: document.getElementById("craftTitle"),
+        craftOutputInput: document.getElementById("craftOutputInput"),
+        craftOutputList: document.getElementById("craftOutputList"),
         craftResult: document.getElementById("craftResult"),
         craftBtn: document.getElementById("craftBtn"),
         craftHint: document.getElementById("craftHint"),
         instructions: document.getElementById("instructions"),
         playBtn: document.getElementById("playBtn"),
         message: document.getElementById("message"),
+        chatOverlay: document.getElementById("chatOverlay"),
+        chatInput: document.getElementById("chatInput"),
       };
 
       this.seed = this.getSeed();
@@ -2446,6 +2744,8 @@
       this.dayNightSpeed = 1;
       this.timeOfDay = 0.2;
       this.targetInfo = null;
+      this.chatOpen = false;
+      this.respawnPoint = new THREE.Vector3(0.5, 70, 0.5);
 
       this.fpsState = {
         frameCount: 0,
@@ -2475,6 +2775,11 @@
       this.invCells = [];
       this.invCellItemIds = [];
       this.craftCells = [];
+      this.selectedCraftItemId = null;
+      this.craftMissingSlots = new Map();
+      this.craftOutputIds = [];
+      this.craftOutputNameLookup = new Map();
+      this.craftOutputIdSet = new Set();
       this.dragMime = "application/x-browsercraft-item";
 
       this.buildUI();
@@ -2525,6 +2830,81 @@
       }, duration);
     }
 
+    openChat(initialText = "/") {
+      if (!this.ui.chatOverlay || !this.ui.chatInput || this.inventoryOpen) {
+        return;
+      }
+      this.chatOpen = true;
+      this.ui.chatOverlay.classList.add("visible");
+      this.unlockPointer();
+      this.controlsEnabled = false;
+      this.ui.chatInput.value = initialText;
+      this.ui.chatInput.focus();
+      const caret = this.ui.chatInput.value.length;
+      this.ui.chatInput.setSelectionRange(caret, caret);
+    }
+
+    closeChat(restoreControls = true) {
+      if (!this.ui.chatOverlay || !this.ui.chatInput) {
+        return;
+      }
+      this.chatOpen = false;
+      this.ui.chatOverlay.classList.remove("visible");
+      this.ui.chatInput.value = "";
+
+      if (restoreControls && !this.inventoryOpen) {
+        if (this.testMode) {
+          this.controlsEnabled = true;
+          this.ui.instructions.classList.add("hidden");
+        } else if (document.pointerLockElement === this.renderer.domElement) {
+          this.controlsEnabled = true;
+        } else {
+          this.lockPointer();
+        }
+      }
+    }
+
+    respawnPlayer() {
+      if (!this.respawnPoint) {
+        this.relocatePlayerToSurface();
+      }
+      this.player.position.copy(this.respawnPoint);
+      this.player.velocity.set(0, 0, 0);
+      this.breakState = null;
+      this.targetInfo = null;
+      this.selectionBox.visible = false;
+      this.player.updateCamera();
+      this.world.updateVisible(this.player.position.x, this.player.position.z);
+      for (let i = 0; i < 10; i += 1) {
+        this.world.processQueues(2, 3);
+      }
+      this.showMessage("Respawned at spawn point", "ok", 1400);
+    }
+
+    handleChatSubmit() {
+      if (!this.ui.chatInput) {
+        return;
+      }
+      const raw = this.ui.chatInput.value.trim();
+      if (!raw) {
+        this.closeChat(true);
+        return;
+      }
+
+      if (raw.startsWith("/")) {
+        const command = raw.slice(1).trim().toLowerCase();
+        if (command === "respawn") {
+          this.respawnPlayer();
+        } else {
+          this.showMessage(`Unknown command: /${command}`, "warn", 1600);
+        }
+      } else {
+        this.showMessage("Single-player command chat: try /respawn", "warn", 1600);
+      }
+
+      this.closeChat(true);
+    }
+
     createSelectionBox() {
       const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02));
       const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 });
@@ -2563,6 +2943,9 @@
         cell.addEventListener("drop", (e) => {
           this.handleInventoryDrop(e, i);
         });
+        cell.addEventListener("click", () => {
+          this.handleInventoryCellClick(i);
+        });
         this.ui.invGrid.appendChild(cell);
         this.invCells.push(cell);
         this.invCellItemIds.push(null);
@@ -2586,11 +2969,15 @@
         slot.addEventListener("drop", (e) => {
           this.handleCraftDrop(e, i);
         });
+        slot.addEventListener("click", () => {
+          this.handleCraftSlotClick(i);
+        });
         slot.addEventListener("contextmenu", (e) => {
           e.preventDefault();
           if (!this.isCraftSlotUsable(i)) {
             return;
           }
+          this.clearCraftAutofillHints();
           this.inventory.craftGrid[i] = null;
           this.updateInventoryUI();
         });
@@ -2598,6 +2985,7 @@
           if (!this.isCraftSlotUsable(i)) {
             return;
           }
+          this.clearCraftAutofillHints();
           this.inventory.craftGrid[i] = null;
           this.updateInventoryUI();
         });
@@ -2615,8 +3003,26 @@
           const gridLabel = this.craftingContext === "table" ? "3x3" : "2x2";
           this.showMessage(`No matching recipe for current ${gridLabel} grid`, "warn");
         }
+        this.clearCraftAutofillHints();
         this.updateInventoryUI();
       });
+
+      this.buildCraftOutputAutocomplete();
+      if (this.ui.craftOutputInput) {
+        this.ui.craftOutputInput.addEventListener("input", () => {
+          this.applyOutputSelectionFromInput(false, false);
+        });
+        this.ui.craftOutputInput.addEventListener("change", () => {
+          this.applyOutputSelectionFromInput(true, true);
+        });
+        this.ui.craftOutputInput.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter") {
+            return;
+          }
+          e.preventDefault();
+          this.applyOutputSelectionFromInput(true, true);
+        });
+      }
     }
 
     getActiveCraftIndexes() {
@@ -2635,10 +3041,337 @@
           y: tablePos.y,
           z: tablePos.z,
         };
+        this.clearCraftAutofillHints();
         return;
       }
       this.craftingContext = "inventory";
       this.craftingTablePos = null;
+      this.clearCraftAutofillHints();
+    }
+
+    clearCraftAutofillHints() {
+      this.craftMissingSlots.clear();
+    }
+
+    normalizeCraftOutputQuery(raw) {
+      return String(raw || "")
+        .trim()
+        .toLowerCase();
+    }
+
+    buildCraftOutputAutocomplete() {
+      if (!this.ui.craftOutputList) {
+        return;
+      }
+
+      const outputs = this.recipeBook.getCraftableOutputsSorted();
+      this.craftOutputIds = outputs;
+      this.craftOutputIdSet = new Set(outputs);
+      this.craftOutputNameLookup.clear();
+      this.ui.craftOutputList.innerHTML = "";
+
+      for (let i = 0; i < outputs.length; i += 1) {
+        const itemId = outputs[i];
+        const itemName = this.recipeBook.getItemName(itemId);
+        const key = this.normalizeCraftOutputQuery(itemName);
+        if (key) {
+          let list = this.craftOutputNameLookup.get(key);
+          if (!list) {
+            list = [];
+            this.craftOutputNameLookup.set(key, list);
+          }
+          list.push(itemId);
+        }
+
+        const byName = document.createElement("option");
+        byName.value = itemName;
+        byName.label = itemId;
+        this.ui.craftOutputList.appendChild(byName);
+
+        const byId = document.createElement("option");
+        byId.value = itemId;
+        byId.label = itemName;
+        this.ui.craftOutputList.appendChild(byId);
+      }
+    }
+
+    resolveCraftOutputItemId(raw, allowPrefix = false) {
+      const rawText = String(raw || "").trim();
+      if (!rawText) {
+        return null;
+      }
+
+      if (this.craftOutputIdSet.has(rawText)) {
+        return rawText;
+      }
+
+      const lowerRawText = rawText.toLowerCase();
+      if (this.craftOutputIdSet.has(lowerRawText)) {
+        return lowerRawText;
+      }
+
+      const byName = this.craftOutputNameLookup.get(this.normalizeCraftOutputQuery(rawText));
+      if (byName && byName.length > 0) {
+        return byName[0];
+      }
+
+      if (!allowPrefix) {
+        return null;
+      }
+
+      for (let i = 0; i < this.craftOutputIds.length; i += 1) {
+        const itemId = this.craftOutputIds[i];
+        const itemName = this.recipeBook.getItemName(itemId).toLowerCase();
+        if (itemName.startsWith(lowerRawText)) {
+          return itemId;
+        }
+      }
+
+      for (let i = 0; i < this.craftOutputIds.length; i += 1) {
+        const itemId = this.craftOutputIds[i];
+        if (itemId.toLowerCase().includes(lowerRawText)) {
+          return itemId;
+        }
+      }
+
+      return null;
+    }
+
+    normalizeIngredientOptions(entry) {
+      if (Array.isArray(entry)) {
+        return entry.filter((token) => typeof token === "string" && token.length > 0);
+      }
+      if (typeof entry === "string" && entry.length > 0) {
+        return [entry];
+      }
+      return [];
+    }
+
+    buildAutofillRequirements(recipe, activeCraftIndexes) {
+      const type = recipe && typeof recipe.type === "string" ? recipe.type : "";
+      const gridSize = this.craftingContext === "table" ? 3 : 2;
+
+      const fromIngredients = (ingredientsRaw) => {
+        if (!Array.isArray(ingredientsRaw)) {
+          return null;
+        }
+        const ingredients = ingredientsRaw
+          .map((entry) => this.normalizeIngredientOptions(entry))
+          .filter((entry) => entry.length > 0);
+        if (ingredients.length === 0 || ingredients.length > activeCraftIndexes.length) {
+          return null;
+        }
+        const requirements = [];
+        for (let i = 0; i < ingredients.length; i += 1) {
+          requirements.push({
+            slotIndex: activeCraftIndexes[i],
+            options: ingredients[i],
+          });
+        }
+        return requirements;
+      };
+
+      if (type === "minecraft:crafting_shaped") {
+        if (!Array.isArray(recipe.pattern) || !recipe.pattern.length || !recipe.key || typeof recipe.key !== "object") {
+          return null;
+        }
+        const rows = recipe.pattern.map((row) => String(row));
+        const height = rows.length;
+        const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+        if (height <= 0 || width <= 0 || height > gridSize || width > gridSize) {
+          return null;
+        }
+        const requirements = [];
+        for (let py = 0; py < height; py += 1) {
+          for (let px = 0; px < width; px += 1) {
+            const symbol = rows[py].charAt(px) || " ";
+            if (symbol === " ") {
+              continue;
+            }
+            const options = this.normalizeIngredientOptions(recipe.key[symbol]);
+            if (options.length === 0) {
+              return null;
+            }
+            requirements.push({
+              slotIndex: py * 3 + px,
+              options,
+            });
+          }
+        }
+        return requirements;
+      }
+
+      if (type === "minecraft:crafting_shapeless") {
+        return fromIngredients(recipe.ingredients);
+      }
+
+      if (
+        type === "minecraft:stonecutting" ||
+        type === "minecraft:smelting" ||
+        type === "minecraft:blasting" ||
+        type === "minecraft:smoking" ||
+        type === "minecraft:campfire_cooking"
+      ) {
+        return fromIngredients([recipe.ingredient]);
+      }
+
+      if (type === "minecraft:crafting_transmute") {
+        return fromIngredients([recipe.input, recipe.material]);
+      }
+
+      if (type === "minecraft:smithing_transform" || type === "minecraft:smithing_trim") {
+        return fromIngredients([recipe.template, recipe.base, recipe.addition]);
+      }
+
+      if (type === "minecraft:crafting_decorated_pot") {
+        return fromIngredients(recipe.ingredients);
+      }
+
+      return null;
+    }
+
+    describeIngredientOptions(options) {
+      if (!Array.isArray(options) || options.length === 0) {
+        return "Unknown";
+      }
+      const token = options[0];
+      if (typeof token !== "string" || token.length === 0) {
+        return "Unknown";
+      }
+      if (token.startsWith("#")) {
+        const tagName = token.slice(1);
+        const shortTag = tagName.includes(":") ? tagName.split(":")[1] : tagName;
+        return `Any ${titleCaseWords(shortTag)}`;
+      }
+      return this.recipeBook.getItemName(token);
+    }
+
+    pickAvailableIngredient(options, remaining) {
+      const candidates = this.recipeBook.expandIngredientOptions(options);
+      if (candidates.length === 0) {
+        return null;
+      }
+
+      let bestItemId = null;
+      let bestCount = 0;
+      for (let i = 0; i < candidates.length; i += 1) {
+        const itemId = candidates[i];
+        const count = remaining.get(itemId) || 0;
+        if (count > bestCount) {
+          bestCount = count;
+          bestItemId = itemId;
+        }
+      }
+      return bestCount > 0 ? bestItemId : null;
+    }
+
+    autofillCraftGridForOutput(outputItemId) {
+      const recipes = this.recipeBook.getRecipesByResult(outputItemId);
+      if (!recipes || recipes.length === 0) {
+        return { ok: false, reason: "no_recipe_for_output" };
+      }
+
+      const activeCraftIndexes = this.getActiveCraftIndexes();
+      let bestPlan = null;
+
+      for (let i = 0; i < recipes.length; i += 1) {
+        const recipe = recipes[i];
+        const requirements = this.buildAutofillRequirements(recipe, activeCraftIndexes);
+        if (!requirements || requirements.length === 0) {
+          continue;
+        }
+
+        const remaining = new Map(this.inventory.counts);
+        const assignedSlots = new Map();
+        const missingSlots = new Map();
+
+        for (let r = 0; r < requirements.length; r += 1) {
+          const req = requirements[r];
+          const chosen = this.pickAvailableIngredient(req.options, remaining);
+          if (chosen) {
+            assignedSlots.set(req.slotIndex, chosen);
+            remaining.set(chosen, (remaining.get(chosen) || 0) - 1);
+          } else {
+            missingSlots.set(req.slotIndex, this.describeIngredientOptions(req.options));
+          }
+        }
+
+        const plan = {
+          recipe,
+          assignedSlots,
+          missingSlots,
+          missingCount: missingSlots.size,
+          filledCount: assignedSlots.size,
+          requirementCount: requirements.length,
+        };
+
+        if (
+          !bestPlan ||
+          plan.missingCount < bestPlan.missingCount ||
+          (plan.missingCount === bestPlan.missingCount && plan.filledCount > bestPlan.filledCount) ||
+          (plan.missingCount === bestPlan.missingCount &&
+            plan.filledCount === bestPlan.filledCount &&
+            plan.requirementCount < bestPlan.requirementCount)
+        ) {
+          bestPlan = plan;
+        }
+      }
+
+      if (!bestPlan) {
+        return { ok: false, reason: "no_supported_recipe" };
+      }
+
+      this.inventory.clearCraftGrid(activeCraftIndexes);
+      this.clearCraftAutofillHints();
+      for (const [slotIndex, itemId] of bestPlan.assignedSlots.entries()) {
+        if (this.isCraftSlotUsable(slotIndex)) {
+          this.inventory.craftGrid[slotIndex] = itemId;
+        }
+      }
+      this.craftMissingSlots = new Map(bestPlan.missingSlots);
+      this.selectedCraftItemId = null;
+      return {
+        ok: true,
+        missingCount: bestPlan.missingCount,
+        recipe: bestPlan.recipe,
+      };
+    }
+
+    applyOutputSelectionFromInput(allowPrefix = false, showFeedback = false) {
+      if (!this.ui.craftOutputInput) {
+        return false;
+      }
+
+      const rawText = this.ui.craftOutputInput.value;
+      if (!rawText || !rawText.trim()) {
+        this.clearCraftAutofillHints();
+        this.updateInventoryUI();
+        return false;
+      }
+
+      const outputItemId = this.resolveCraftOutputItemId(rawText, allowPrefix);
+      if (!outputItemId) {
+        return false;
+      }
+
+      const result = this.autofillCraftGridForOutput(outputItemId);
+      if (!result.ok) {
+        if (showFeedback) {
+          this.showMessage("No supported recipe layout for this output in current crafting grid", "warn", 1600);
+        }
+        return false;
+      }
+
+      this.ui.craftOutputInput.value = this.recipeBook.getItemName(outputItemId);
+      if (showFeedback) {
+        if (result.missingCount > 0) {
+          this.showMessage(`Prepared recipe with ${result.missingCount} missing material slot(s)`, "warn", 1600);
+        } else {
+          this.showMessage("Prepared recipe from selected output", "ok", 1200);
+        }
+      }
+      this.updateInventoryUI();
+      return true;
     }
 
     setDragPayload(event, payload) {
@@ -2676,6 +3409,42 @@
       const activeCraftIndexes = this.getActiveCraftIndexes();
       const assigned = this.inventory.countAssigned(itemId, index, activeCraftIndexes);
       return assigned < this.inventory.getCount(itemId);
+    }
+
+    handleInventoryCellClick(index) {
+      if (index < 0 || index >= this.invCellItemIds.length) {
+        return;
+      }
+      const itemId = this.invCellItemIds[index];
+      if (!itemId) {
+        this.selectedCraftItemId = null;
+        this.updateInventoryUI();
+        return;
+      }
+
+      if (this.selectedCraftItemId === itemId) {
+        this.selectedCraftItemId = null;
+      } else {
+        this.selectedCraftItemId = itemId;
+      }
+      this.updateInventoryUI();
+    }
+
+    handleCraftSlotClick(index) {
+      if (!this.isCraftSlotUsable(index)) {
+        return;
+      }
+      if (!this.selectedCraftItemId) {
+        return;
+      }
+
+      if (!this.canAssignCraftItem(index, this.selectedCraftItemId)) {
+        return;
+      }
+
+      this.clearCraftAutofillHints();
+      this.inventory.craftGrid[index] = this.selectedCraftItemId;
+      this.updateInventoryUI();
     }
 
     handleInventoryDragStart(event, index) {
@@ -2753,6 +3522,7 @@
         if (!this.canAssignCraftItem(targetIndex, payload.itemId)) {
           return;
         }
+        this.clearCraftAutofillHints();
         this.inventory.craftGrid[targetIndex] = payload.itemId;
         this.updateInventoryUI();
         return;
@@ -2774,6 +3544,7 @@
         if (!sourceItem) {
           return;
         }
+        this.clearCraftAutofillHints();
         const targetItem = this.inventory.craftGrid[targetIndex];
         this.inventory.craftGrid[targetIndex] = sourceItem;
         this.inventory.craftGrid[sourceIndex] = targetItem || null;
@@ -2796,6 +3567,7 @@
         if (!this.isCraftSlotUsable(sourceIndex)) {
           return;
         }
+        this.clearCraftAutofillHints();
         this.inventory.craftGrid[sourceIndex] = null;
         this.updateInventoryUI();
       }
@@ -2813,12 +3585,50 @@
       });
 
       document.addEventListener("keydown", (e) => {
-        this.keys[e.code] = true;
+        const activeEl = document.activeElement;
+        const isTypingInField =
+          !!activeEl &&
+          (activeEl.tagName === "INPUT" ||
+            activeEl.tagName === "TEXTAREA" ||
+            activeEl.tagName === "SELECT" ||
+            !!activeEl.isContentEditable);
 
-        if (e.code === "KeyE") {
+        if (e.code === "Escape") {
+          e.preventDefault();
+          if (this.chatOpen) {
+            this.closeChat(true);
+          }
+          if (this.inventoryOpen) {
+            this.toggleInventory(false);
+          }
+          if (this.ui.instructions && !this.ui.instructions.classList.contains("hidden")) {
+            this.ui.instructions.classList.add("hidden");
+          }
+          return;
+        }
+
+        if (isTypingInField) {
+          return;
+        }
+
+        if (e.code === "Slash") {
+          if (!this.inventoryOpen) {
+            e.preventDefault();
+            this.openChat("/");
+          }
+          return;
+        }
+
+        if (e.code === "KeyI") {
           e.preventDefault();
           this.toggleInventory();
           return;
+        }
+
+        this.keys[e.code] = true;
+
+        if (e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "ArrowLeft" || e.code === "ArrowRight") {
+          e.preventDefault();
         }
 
         if (e.code === "KeyG") {
@@ -2871,6 +3681,20 @@
       document.addEventListener("keyup", (e) => {
         this.keys[e.code] = false;
       });
+
+      if (this.ui.chatInput) {
+        this.ui.chatInput.addEventListener("keydown", (e) => {
+          if (e.code === "Enter") {
+            e.preventDefault();
+            this.handleChatSubmit();
+            return;
+          }
+          if (e.code === "Escape") {
+            e.preventDefault();
+            this.closeChat(true);
+          }
+        });
+      }
 
       this.ui.playBtn.addEventListener("click", () => {
         this.lockPointer();
@@ -2965,6 +3789,9 @@
 
     toggleInventory(forceState = null, context = "inventory", tablePos = null) {
       const next = forceState === null ? !this.inventoryOpen : !!forceState;
+      if (next && this.chatOpen) {
+        this.closeChat(false);
+      }
       this.inventoryOpen = next;
       this.ui.inventory.classList.toggle("visible", this.inventoryOpen);
 
@@ -2974,11 +3801,16 @@
         this.controlsEnabled = false;
       } else {
         this.setCraftingContext("inventory");
+        this.selectedCraftItemId = null;
+        this.clearCraftAutofillHints();
         if (this.testMode) {
           this.controlsEnabled = true;
           this.ui.instructions.classList.add("hidden");
         } else {
-          this.ui.instructions.classList.remove("hidden");
+          // Keep the intro overlay dismissed when closing inventory/crafting UI.
+          // Player can still click to re-lock pointer if needed.
+          this.controlsEnabled = document.pointerLockElement === this.renderer.domElement;
+          this.ui.instructions.classList.add("hidden");
         }
       }
 
@@ -3347,6 +4179,10 @@
       const activeCraftSet = new Set(activeCraftIndexes);
       const usingCraftingTable = this.craftingContext === "table";
 
+      if (this.selectedCraftItemId && this.inventory.getCount(this.selectedCraftItemId) <= 0) {
+        this.selectedCraftItemId = null;
+      }
+
       const ownedEntries = Array.from(this.inventory.counts.entries())
         .filter((entry) => entry[1] > 0)
         .sort((a, b) => {
@@ -3364,6 +4200,7 @@
           cell.innerHTML = "Empty";
           cell.draggable = false;
           cell.classList.remove("draggable");
+          cell.classList.remove("selected");
           continue;
         }
         const [itemId, count] = entry;
@@ -3371,6 +4208,7 @@
         cell.innerHTML = `${this.recipeBook.getItemName(itemId)}<span class="count">${count}</span>`;
         cell.draggable = true;
         cell.classList.add("draggable");
+        cell.classList.toggle("selected", itemId === this.selectedCraftItemId);
       }
 
       if (this.ui.craftTitle) {
@@ -3378,8 +4216,8 @@
       }
       if (this.ui.craftHint) {
         this.ui.craftHint.textContent = usingCraftingTable
-          ? "3x3 crafting is active. Drag items in, then click Craft Output."
-          : "Only inventory 2x2 crafting is active here. Place and right-click a crafting table for 3x3 crafting.";
+          ? "3x3 crafting is active. Type/select an Output, then Craft Output. You can also drag or click-fill slots."
+          : "2x2 crafting is active here. Type/select an Output to auto-fill. Place/right-click a crafting table for 3x3.";
       }
       if (this.ui.craftGrid) {
         this.ui.craftGrid.classList.toggle("inventory-2x2", !usingCraftingTable);
@@ -3389,17 +4227,32 @@
         const slot = this.craftCells[i];
         const usable = activeCraftSet.has(i);
         const id = this.inventory.craftGrid[i];
+        const missing = this.craftMissingSlots.get(i) || null;
         if (!usable) {
           slot.textContent = "Locked";
           slot.draggable = false;
           slot.classList.remove("filled");
           slot.classList.add("locked");
           slot.classList.add("hidden-slot");
+          slot.classList.remove("missing");
+          slot.removeAttribute("title");
           continue;
         }
-        slot.textContent = id ? this.recipeBook.getItemName(id) : "Empty";
+
+        if (id) {
+          slot.textContent = this.recipeBook.getItemName(id);
+          slot.removeAttribute("title");
+        } else if (missing) {
+          slot.textContent = `Missing: ${missing}`;
+          slot.title = `Missing material: ${missing}`;
+        } else {
+          slot.textContent = "Empty";
+          slot.removeAttribute("title");
+        }
+
         slot.draggable = !!id;
         slot.classList.toggle("filled", !!id);
+        slot.classList.toggle("missing", !id && !!missing);
         slot.classList.remove("locked");
         slot.classList.remove("hidden-slot");
       }
