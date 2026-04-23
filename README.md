@@ -8,7 +8,7 @@ It includes:
 - Trees, caves, and simple ores
 - First-person controls + pointer lock
 - Break/place voxel interaction
-- Hotbar + inventory overlay + 3x3 crafting with imported vanilla recipe data
+- Hotbar + inventory overlay + vanilla-style crafting flow (2x2 inventory crafting, 3x3 via placed crafting table)
 - Survival/Creative modes with fly toggle
 - Day/night lighting cycle, fog, particles, and basic sound
 - Seeded world generation + localStorage save/load for modified chunks
@@ -58,7 +58,7 @@ This runs:
 - `Space`: jump
 - `Shift`: sneak/crouch (and move down while flying)
 - `Left Click (hold)`: break block (hardness-based delay)
-- `Right Click`: place selected block
+- `Right Click`: use block (crafting table) or place selected block
 - `1-9`: select hotbar block
 - `E`: open/close inventory + crafting
 - `Drag and drop`: move items between inventory and crafting grid
@@ -92,7 +92,9 @@ Recipe system:
 - Imports all JSON recipes from `data/minecraft/recipe` (`1470` files) into `data/recipes.generated.js`
 - Supports shaped, shapeless, stonecutting, smelting/blasting/smoking/campfire, smithing transform/trim, and transmute recipes
 - Includes practical approximations for special vanilla recipe types (fireworks, map cloning/extending, armor dye, repair, banner/shield decoration, decorated pot)
-- Drag items from inventory into the crafting grid, then click **Craft Output**
+- Inventory crafting uses a 2x2 grid (for early recipes like planks/crafting table)
+- Place a crafting table block and right-click it to access full 3x3 crafting
+- Drag items into the active crafting grid, then click **Craft Output**
 
 ## Project Structure
 

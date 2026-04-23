@@ -22,6 +22,7 @@
     COBBLE: 9,
     COAL_ORE: 10,
     IRON_ORE: 11,
+    CRAFTING_TABLE: 12,
   };
 
   const BLOCK_INFO = {
@@ -145,6 +146,16 @@
       hardness: 1.45,
       drop: BLOCK.IRON_ORE,
     },
+    [BLOCK.CRAFTING_TABLE]: {
+      id: BLOCK.CRAFTING_TABLE,
+      name: "Crafting Table",
+      color: 0x8f5f38,
+      solid: true,
+      transparent: false,
+      liquid: false,
+      hardness: 1.1,
+      drop: BLOCK.CRAFTING_TABLE,
+    },
   };
 
   const HOTBAR_DEFAULTS = [
@@ -154,10 +165,13 @@
     BLOCK.LOG,
     BLOCK.PLANKS,
     BLOCK.SAND,
-    BLOCK.LEAVES,
+    BLOCK.CRAFTING_TABLE,
     BLOCK.COBBLE,
     BLOCK.WATER,
   ];
+
+  const TABLE_CRAFT_INDEXES = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  const INVENTORY_CRAFT_INDEXES = [0, 1, 3, 4];
 
   const BLOCK_TO_ITEM = {
     [BLOCK.GRASS]: "minecraft:grass_block",
@@ -171,6 +185,7 @@
     [BLOCK.COBBLE]: "minecraft:cobblestone",
     [BLOCK.COAL_ORE]: "minecraft:coal_ore",
     [BLOCK.IRON_ORE]: "minecraft:iron_ore",
+    [BLOCK.CRAFTING_TABLE]: "minecraft:crafting_table",
   };
 
   const ITEM_TO_BLOCK = new Map(
@@ -550,7 +565,7 @@
 
     makeFallbackData() {
       return {
-        items: ["minecraft:oak_log", "minecraft:oak_planks"],
+        items: ["minecraft:oak_log", "minecraft:oak_planks", "minecraft:crafting_table"],
         tags: {
           "minecraft:oak_logs": ["minecraft:oak_log"],
           "minecraft:logs": ["minecraft:oak_log"],
@@ -562,6 +577,15 @@
             type: "minecraft:crafting_shapeless",
             ingredients: [["#minecraft:oak_logs"]],
             result: { id: "minecraft:oak_planks", count: 4 },
+          },
+          {
+            id: "browsercraft:fallback_crafting_table",
+            type: "minecraft:crafting_shaped",
+            pattern: ["##", "##"],
+            key: {
+              "#": ["#minecraft:planks"],
+            },
+            result: { id: "minecraft:crafting_table", count: 1 },
           },
         ],
       };
@@ -1168,13 +1192,18 @@
       return HOTBAR_DEFAULTS[this.selectedHotbar] || BLOCK.DIRT;
     }
 
-    countAssigned(itemId, ignoreIndex = -1) {
+    countAssigned(itemId, ignoreIndex = -1, activeCraftIndexes = null) {
       let count = 0;
-      for (let i = 0; i < this.craftGrid.length; i += 1) {
-        if (i === ignoreIndex) {
+      const slots = Array.isArray(activeCraftIndexes) ? activeCraftIndexes : this.craftGrid.map((_, i) => i);
+      for (let i = 0; i < slots.length; i += 1) {
+        const slotIndex = slots[i];
+        if (slotIndex < 0 || slotIndex >= this.craftGrid.length) {
           continue;
         }
-        if (this.craftGrid[i] === itemId) {
+        if (slotIndex === ignoreIndex) {
+          continue;
+        }
+        if (this.craftGrid[slotIndex] === itemId) {
           count += 1;
         }
       }
@@ -1225,31 +1254,56 @@
       this.craftGrid[index] = null;
     }
 
-    clearCraftGrid() {
+    clearCraftGrid(activeCraftIndexes = null) {
+      if (Array.isArray(activeCraftIndexes)) {
+        for (let i = 0; i < activeCraftIndexes.length; i += 1) {
+          const slotIndex = activeCraftIndexes[i];
+          if (slotIndex >= 0 && slotIndex < this.craftGrid.length) {
+            this.craftGrid[slotIndex] = null;
+          }
+        }
+        return;
+      }
       for (let i = 0; i < this.craftGrid.length; i += 1) {
         this.craftGrid[i] = null;
       }
     }
 
-    craftPreview() {
+    gridForCraft(activeCraftIndexes = null) {
+      if (!Array.isArray(activeCraftIndexes)) {
+        return this.craftGrid.slice();
+      }
+      const filtered = new Array(9).fill(null);
+      for (let i = 0; i < activeCraftIndexes.length; i += 1) {
+        const slotIndex = activeCraftIndexes[i];
+        if (slotIndex >= 0 && slotIndex < this.craftGrid.length) {
+          filtered[slotIndex] = this.craftGrid[slotIndex];
+        }
+      }
+      return filtered;
+    }
+
+    craftPreview(activeCraftIndexes = null) {
       if (!this.recipeBook) {
         return null;
       }
-      return this.recipeBook.preview(this.craftGrid);
+      const craftGrid = this.gridForCraft(activeCraftIndexes);
+      return this.recipeBook.preview(craftGrid);
     }
 
-    craft() {
+    craft(activeCraftIndexes = null) {
       if (!this.recipeBook) {
         return { ok: false, reason: "no_recipe_book" };
       }
-      const match = this.recipeBook.match(this.craftGrid);
+      const craftGrid = this.gridForCraft(activeCraftIndexes);
+      const match = this.recipeBook.match(craftGrid);
       if (!match) {
         return { ok: false, reason: "no_recipe" };
       }
 
       const needed = new Map();
-      for (let i = 0; i < this.craftGrid.length; i += 1) {
-        const itemId = this.craftGrid[i];
+      for (let i = 0; i < craftGrid.length; i += 1) {
+        const itemId = craftGrid[i];
         if (!itemId) {
           continue;
         }
@@ -1266,7 +1320,7 @@
         this.remove(itemId, amount);
       }
       this.add(match.result.id, match.result.count);
-      this.clearCraftGrid();
+      this.clearCraftGrid(activeCraftIndexes);
       return {
         ok: true,
         result: match.result,
@@ -2345,8 +2399,10 @@
         inventory: document.getElementById("inventory"),
         invGrid: document.getElementById("invGrid"),
         craftGrid: document.getElementById("craftGrid"),
+        craftTitle: document.getElementById("craftTitle"),
         craftResult: document.getElementById("craftResult"),
         craftBtn: document.getElementById("craftBtn"),
+        craftHint: document.getElementById("craftHint"),
         instructions: document.getElementById("instructions"),
         playBtn: document.getElementById("playBtn"),
         message: document.getElementById("message"),
@@ -2381,6 +2437,8 @@
 
       this.keys = {};
       this.inventoryOpen = false;
+      this.craftingContext = "inventory";
+      this.craftingTablePos = null;
       this.controlsEnabled = false;
       this.leftMouseDown = false;
       this.breakState = null;
@@ -2530,10 +2588,16 @@
         });
         slot.addEventListener("contextmenu", (e) => {
           e.preventDefault();
+          if (!this.isCraftSlotUsable(i)) {
+            return;
+          }
           this.inventory.craftGrid[i] = null;
           this.updateInventoryUI();
         });
         slot.addEventListener("dblclick", () => {
+          if (!this.isCraftSlotUsable(i)) {
+            return;
+          }
           this.inventory.craftGrid[i] = null;
           this.updateInventoryUI();
         });
@@ -2542,15 +2606,39 @@
       }
 
       this.ui.craftBtn.addEventListener("click", () => {
-        const result = this.inventory.craft();
+        const activeCraftIndexes = this.getActiveCraftIndexes();
+        const result = this.inventory.craft(activeCraftIndexes);
         if (result.ok) {
           this.sfx.craft();
           this.showMessage(`Crafted ${itemDisplayName(result.result.id)} x${result.result.count}`, "ok");
         } else {
-          this.showMessage("No matching recipe for current 3x3 grid", "warn");
+          const gridLabel = this.craftingContext === "table" ? "3x3" : "2x2";
+          this.showMessage(`No matching recipe for current ${gridLabel} grid`, "warn");
         }
         this.updateInventoryUI();
       });
+    }
+
+    getActiveCraftIndexes() {
+      return this.craftingContext === "table" ? TABLE_CRAFT_INDEXES : INVENTORY_CRAFT_INDEXES;
+    }
+
+    isCraftSlotUsable(index) {
+      return this.getActiveCraftIndexes().includes(index);
+    }
+
+    setCraftingContext(nextContext, tablePos = null) {
+      if (nextContext === "table" && tablePos && Number.isFinite(tablePos.x) && Number.isFinite(tablePos.y) && Number.isFinite(tablePos.z)) {
+        this.craftingContext = "table";
+        this.craftingTablePos = {
+          x: tablePos.x,
+          y: tablePos.y,
+          z: tablePos.z,
+        };
+        return;
+      }
+      this.craftingContext = "inventory";
+      this.craftingTablePos = null;
     }
 
     setDragPayload(event, payload) {
@@ -2582,10 +2670,11 @@
     }
 
     canAssignCraftItem(index, itemId) {
-      if (!itemId) {
+      if (!itemId || !this.isCraftSlotUsable(index)) {
         return false;
       }
-      const assigned = this.inventory.countAssigned(itemId, index);
+      const activeCraftIndexes = this.getActiveCraftIndexes();
+      const assigned = this.inventory.countAssigned(itemId, index, activeCraftIndexes);
       return assigned < this.inventory.getCount(itemId);
     }
 
@@ -2605,6 +2694,10 @@
     }
 
     handleCraftDragStart(event, index) {
+      if (!this.isCraftSlotUsable(index)) {
+        event.preventDefault();
+        return;
+      }
       const itemId = this.inventory.craftGrid[index];
       if (!itemId || !event.dataTransfer) {
         event.preventDefault();
@@ -2626,6 +2719,13 @@
     }
 
     handleCraftDragOver(event) {
+      const target = event.currentTarget;
+      if (target && target.dataset && Number.isInteger(Number.parseInt(target.dataset.index, 10))) {
+        const index = Number.parseInt(target.dataset.index, 10);
+        if (!this.isCraftSlotUsable(index)) {
+          return;
+        }
+      }
       event.preventDefault();
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = "copy";
@@ -2641,6 +2741,9 @@
 
     handleCraftDrop(event, targetIndex) {
       event.preventDefault();
+      if (!this.isCraftSlotUsable(targetIndex)) {
+        return;
+      }
       const payload = this.getDragPayload(event);
       if (!payload) {
         return;
@@ -2658,6 +2761,9 @@
       if (payload.source === "craft" && Number.isInteger(payload.craftIndex)) {
         const sourceIndex = payload.craftIndex;
         if (sourceIndex < 0 || sourceIndex >= this.inventory.craftGrid.length) {
+          return;
+        }
+        if (!this.isCraftSlotUsable(sourceIndex)) {
           return;
         }
         if (sourceIndex === targetIndex) {
@@ -2685,6 +2791,9 @@
       if (payload.source === "craft" && Number.isInteger(payload.craftIndex)) {
         const sourceIndex = payload.craftIndex;
         if (sourceIndex < 0 || sourceIndex >= this.inventory.craftGrid.length) {
+          return;
+        }
+        if (!this.isCraftSlotUsable(sourceIndex)) {
           return;
         }
         this.inventory.craftGrid[sourceIndex] = null;
@@ -2800,7 +2909,9 @@
           this.tryStartBreaking();
         }
         if (e.button === 2) {
-          this.tryPlaceBlock();
+          if (!this.tryUseBlock()) {
+            this.tryPlaceBlock();
+          }
         }
       });
 
@@ -2852,15 +2963,17 @@
       }
     }
 
-    toggleInventory(forceState = null) {
+    toggleInventory(forceState = null, context = "inventory", tablePos = null) {
       const next = forceState === null ? !this.inventoryOpen : !!forceState;
       this.inventoryOpen = next;
       this.ui.inventory.classList.toggle("visible", this.inventoryOpen);
 
       if (this.inventoryOpen) {
+        this.setCraftingContext(context, tablePos);
         this.unlockPointer();
         this.controlsEnabled = false;
       } else {
+        this.setCraftingContext("inventory");
         if (this.testMode) {
           this.controlsEnabled = true;
           this.ui.instructions.classList.add("hidden");
@@ -2882,6 +2995,7 @@
         mode: this.player.mode,
         flying: this.player.flying,
         inventoryOpen: this.inventoryOpen,
+        craftingContext: this.craftingContext,
         controlsEnabled: this.controlsEnabled,
         selectedHotbar: this.inventory.selectedHotbar,
         logs: this.inventory.getCount("minecraft:oak_log"),
@@ -3088,6 +3202,25 @@
       this.updateHUD();
     }
 
+    tryUseBlock() {
+      if (!this.targetInfo || !this.targetInfo.hit) {
+        return false;
+      }
+
+      const hit = this.targetInfo.hit;
+      if (hit.blockId !== BLOCK.CRAFTING_TABLE) {
+        return false;
+      }
+
+      this.toggleInventory(true, "table", {
+        x: hit.x,
+        y: hit.y,
+        z: hit.z,
+      });
+      this.showMessage("Opened crafting table (3x3)", "ok", 1200);
+      return true;
+    }
+
     tryPlaceBlock() {
       const now = performance.now();
       if (now - this.lastPlaceTime < 110) {
@@ -3140,6 +3273,28 @@
       this.updateHUD();
     }
 
+    validateCraftingTableSession() {
+      if (!this.inventoryOpen || this.craftingContext !== "table" || !this.craftingTablePos) {
+        return;
+      }
+
+      const { x, y, z } = this.craftingTablePos;
+      if (this.world.getBlock(x, y, z, true) !== BLOCK.CRAFTING_TABLE) {
+        this.toggleInventory(false);
+        this.showMessage("Crafting table was removed", "warn");
+        return;
+      }
+
+      const dx = this.player.position.x - (x + 0.5);
+      const dy = this.player.position.y - (y + 0.5);
+      const dz = this.player.position.z - (z + 0.5);
+      const maxDistance = MAX_INTERACT_DISTANCE + 1.5;
+      if (dx * dx + dy * dy + dz * dz > maxDistance * maxDistance) {
+        this.toggleInventory(false);
+        this.showMessage("Moved too far from crafting table", "warn");
+      }
+    }
+
     updateDayNight(dt) {
       this.timeOfDay = (this.timeOfDay + dt * 0.015 * this.dayNightSpeed) % 1;
       const angle = this.timeOfDay * Math.PI * 2;
@@ -3188,6 +3343,10 @@
     }
 
     updateInventoryUI() {
+      const activeCraftIndexes = this.getActiveCraftIndexes();
+      const activeCraftSet = new Set(activeCraftIndexes);
+      const usingCraftingTable = this.craftingContext === "table";
+
       const ownedEntries = Array.from(this.inventory.counts.entries())
         .filter((entry) => entry[1] > 0)
         .sort((a, b) => {
@@ -3214,14 +3373,38 @@
         cell.classList.add("draggable");
       }
 
-      for (let i = 0; i < this.craftCells.length; i += 1) {
-        const id = this.inventory.craftGrid[i];
-        this.craftCells[i].textContent = id ? this.recipeBook.getItemName(id) : "Empty";
-        this.craftCells[i].draggable = !!id;
-        this.craftCells[i].classList.toggle("filled", !!id);
+      if (this.ui.craftTitle) {
+        this.ui.craftTitle.textContent = usingCraftingTable ? "Crafting Table 3x3" : "Crafting 2x2 (Inventory)";
+      }
+      if (this.ui.craftHint) {
+        this.ui.craftHint.textContent = usingCraftingTable
+          ? "3x3 crafting is active. Drag items in, then click Craft Output."
+          : "Only inventory 2x2 crafting is active here. Place and right-click a crafting table for 3x3 crafting.";
+      }
+      if (this.ui.craftGrid) {
+        this.ui.craftGrid.classList.toggle("inventory-2x2", !usingCraftingTable);
       }
 
-      const preview = this.inventory.craftPreview();
+      for (let i = 0; i < this.craftCells.length; i += 1) {
+        const slot = this.craftCells[i];
+        const usable = activeCraftSet.has(i);
+        const id = this.inventory.craftGrid[i];
+        if (!usable) {
+          slot.textContent = "Locked";
+          slot.draggable = false;
+          slot.classList.remove("filled");
+          slot.classList.add("locked");
+          slot.classList.add("hidden-slot");
+          continue;
+        }
+        slot.textContent = id ? this.recipeBook.getItemName(id) : "Empty";
+        slot.draggable = !!id;
+        slot.classList.toggle("filled", !!id);
+        slot.classList.remove("locked");
+        slot.classList.remove("hidden-slot");
+      }
+
+      const preview = this.inventory.craftPreview(activeCraftIndexes);
       if (!preview) {
         this.ui.craftResult.textContent = "Output: Empty";
       } else {
@@ -3323,6 +3506,7 @@
       this.updateDayNight(dt);
 
       this.player.update(dt, this.keys, this.controlsEnabled, this.inventoryOpen);
+      this.validateCraftingTableSession();
 
       this.chunkUpdateTimer += dt;
       if (this.chunkUpdateTimer >= 0.14) {
