@@ -54,6 +54,7 @@ test.describe('BrowserCraft basic regression', () => {
     // Inventory + crafting flow.
     await page.keyboard.press('KeyE');
     await expect(page.locator('#inventory.visible')).toBeVisible();
+    await expect(page.locator('#craftTitle')).toContainText('2x2');
 
     const craftSlots = page.locator('#craftGrid .craft-slot');
     const logCell = page.locator('#invGrid .inv-cell', { hasText: 'Log' }).first();
@@ -79,6 +80,53 @@ test.describe('BrowserCraft basic regression', () => {
         return await page.evaluate((targetId) => window.__BROWSERCRAFT__.inventory.getCount(targetId), craftedItemId);
       })
       .toBeGreaterThan(craftTarget.countBefore);
+
+    await page.keyboard.press('KeyE');
+    await expect(page.locator('#inventory.visible')).toHaveCount(0);
+
+    // Place and use a crafting table, then verify 3x3 context opens.
+    const craftingTableOpen = await page.evaluate(() => {
+      const g = window.__BROWSERCRAFT__;
+      const placeX = Math.floor(g.player.position.x) + 4;
+      const placeZ = Math.floor(g.player.position.z);
+      let placeY = Math.floor(g.player.position.y);
+
+      // Find a nearby placement cell: air with a solid-ish block below.
+      for (let y = Math.floor(g.player.position.y) + 4; y >= 2; y -= 1) {
+        const at = g.world.getBlock(placeX, y, placeZ, true);
+        const below = g.world.getBlock(placeX, y - 1, placeZ, true);
+        if (at === 0 && below !== 0 && below !== 6) {
+          placeY = y;
+          break;
+        }
+      }
+
+      g.inventory.add('minecraft:crafting_table', 1);
+      g.inventory.selectedHotbar = 6; // Hotbar slot 7 is Crafting Table.
+      g.targetInfo = {
+        hit: { x: placeX, y: placeY - 1, z: placeZ, blockId: g.world.getBlock(placeX, placeY - 1, placeZ, true) },
+        place: { x: placeX, y: placeY, z: placeZ },
+        normal: { x: 0, y: 1, z: 0 },
+      };
+      g.tryPlaceBlock();
+
+      const placedBlockId = g.world.getBlock(placeX, placeY, placeZ, true);
+      g.targetInfo = {
+        hit: { x: placeX, y: placeY, z: placeZ, blockId: placedBlockId },
+        place: { x: placeX, y: placeY + 1, z: placeZ },
+        normal: { x: 0, y: 1, z: 0 },
+      };
+      const used = g.tryUseBlock();
+      return {
+        used,
+        inventoryOpen: g.inventoryOpen,
+        craftingContext: g.craftingContext,
+      };
+    });
+    expect(craftingTableOpen.used).toBeTruthy();
+    expect(craftingTableOpen.inventoryOpen).toBeTruthy();
+    expect(craftingTableOpen.craftingContext).toBe('table');
+    await expect(page.locator('#craftTitle')).toContainText('3x3');
 
     await page.keyboard.press('KeyE');
     await expect(page.locator('#inventory.visible')).toHaveCount(0);
