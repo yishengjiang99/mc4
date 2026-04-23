@@ -2466,6 +2466,7 @@
       this.walkSpeed = 5.2;
       this.crouchSpeed = 2.7;
       this.flySpeed = 9.5;
+      this.turnSpeed = 2.75;
       this.gravity = 26;
       this.jumpVelocity = 8.4;
       this.sensitivity = 0.0023;
@@ -2584,8 +2585,14 @@
         return;
       }
 
-      const forwardInput = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-      const strafeInput = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+      const turnInput = ((keys.KeyD || keys.ArrowRight) ? 1 : 0) - ((keys.KeyA || keys.ArrowLeft) ? 1 : 0);
+      if (turnInput !== 0) {
+        this.yaw -= turnInput * this.turnSpeed * dt;
+        this.updateCameraRotation();
+      }
+
+      const forwardInput = ((keys.KeyW || keys.ArrowUp) ? 1 : 0) - ((keys.KeyS || keys.ArrowDown) ? 1 : 0);
+      const strafeInput = (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0);
 
       const moveVec = new THREE.Vector3();
       if (forwardInput !== 0 || strafeInput !== 0) {
@@ -2599,7 +2606,9 @@
 
       if (this.mode === "creative" && this.flying) {
         const speed = sneakHeld ? this.flySpeed * 0.55 : this.flySpeed;
-        const vertical = (keys.Space ? 1 : 0) - (sneakHeld ? 1 : 0);
+        const flyUp = keys.Space || keys.Numpad0;
+        const flyDown = keys.KeyX;
+        const vertical = (flyUp ? 1 : 0) - (flyDown ? 1 : 0);
 
         this.position.x += moveVec.x * speed * dt;
         this.position.z += moveVec.z * speed * dt;
@@ -3489,12 +3498,36 @@
       });
 
       document.addEventListener("keydown", (e) => {
-        this.keys[e.code] = true;
+        const activeEl = document.activeElement;
+        const isTypingInField =
+          !!activeEl &&
+          (activeEl.tagName === "INPUT" ||
+            activeEl.tagName === "TEXTAREA" ||
+            activeEl.tagName === "SELECT" ||
+            !!activeEl.isContentEditable);
 
-        if (e.code === "KeyE") {
+        if (e.code === "Escape") {
+          e.preventDefault();
+          if (this.inventoryOpen) {
+            this.toggleInventory(false);
+          }
+          return;
+        }
+
+        if (isTypingInField) {
+          return;
+        }
+
+        if (e.code === "KeyI") {
           e.preventDefault();
           this.toggleInventory();
           return;
+        }
+
+        this.keys[e.code] = true;
+
+        if (e.code === "ArrowUp" || e.code === "ArrowDown" || e.code === "ArrowLeft" || e.code === "ArrowRight") {
+          e.preventDefault();
         }
 
         if (e.code === "KeyG") {

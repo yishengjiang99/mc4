@@ -54,13 +54,16 @@ This runs:
 ## Controls
 
 - `Mouse`: look around
-- `WASD`: move
+- `W/S` or `Arrow Up/Down`: move forward/backward
+- `Q / E`: strafe left/right
+- `A / D` or `Arrow Left/Right`: turn left/right
 - `Space`: jump
 - `Shift`: sneak/crouch (and move down while flying)
 - `Left Click (hold)`: break block (hardness-based delay)
 - `Right Click`: use block (crafting table) or place selected block
 - `1-9`: select hotbar block
-- `E`: open/close inventory + crafting
+- `I`: open/close inventory + crafting
+- `Esc`: dismiss crafting/inventory UI
 - `Drag and drop`: move items between inventory and crafting grid
 - `G`: toggle Survival / Creative mode
 - `F`: toggle flying (Creative)
