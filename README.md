@@ -58,7 +58,9 @@ This runs:
 - `Q / E`: strafe left/right
 - `A / D` or `Arrow Left/Right`: turn left/right
 - `Space`: jump
-- `Shift`: sneak/crouch (and move down while flying)
+- `Shift`: sneak/crouch
+- `Space` (Creative flying): fly up
+- `X` (Creative flying): fly down
 - `Left Click (hold)`: break block (hardness-based delay)
 - `Right Click`: use block (crafting table) or place selected block
 - `1-9`: select hotbar block

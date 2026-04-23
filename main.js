@@ -2694,6 +2694,8 @@
         instructions: document.getElementById("instructions"),
         playBtn: document.getElementById("playBtn"),
         message: document.getElementById("message"),
+        chatOverlay: document.getElementById("chatOverlay"),
+        chatInput: document.getElementById("chatInput"),
       };
 
       this.seed = this.getSeed();
@@ -2734,6 +2736,8 @@
       this.dayNightSpeed = 1;
       this.timeOfDay = 0.2;
       this.targetInfo = null;
+      this.chatOpen = false;
+      this.respawnPoint = new THREE.Vector3(0.5, 70, 0.5);
 
       this.fpsState = {
         frameCount: 0,
@@ -2816,6 +2820,81 @@
       this._msgTimeout = setTimeout(() => {
         this.ui.message.className = "";
       }, duration);
+    }
+
+    openChat(initialText = "/") {
+      if (!this.ui.chatOverlay || !this.ui.chatInput || this.inventoryOpen) {
+        return;
+      }
+      this.chatOpen = true;
+      this.ui.chatOverlay.classList.add("visible");
+      this.unlockPointer();
+      this.controlsEnabled = false;
+      this.ui.chatInput.value = initialText;
+      this.ui.chatInput.focus();
+      const caret = this.ui.chatInput.value.length;
+      this.ui.chatInput.setSelectionRange(caret, caret);
+    }
+
+    closeChat(restoreControls = true) {
+      if (!this.ui.chatOverlay || !this.ui.chatInput) {
+        return;
+      }
+      this.chatOpen = false;
+      this.ui.chatOverlay.classList.remove("visible");
+      this.ui.chatInput.value = "";
+
+      if (restoreControls && !this.inventoryOpen) {
+        if (this.testMode) {
+          this.controlsEnabled = true;
+          this.ui.instructions.classList.add("hidden");
+        } else if (document.pointerLockElement === this.renderer.domElement) {
+          this.controlsEnabled = true;
+        } else {
+          this.lockPointer();
+        }
+      }
+    }
+
+    respawnPlayer() {
+      if (!this.respawnPoint) {
+        this.relocatePlayerToSurface();
+      }
+      this.player.position.copy(this.respawnPoint);
+      this.player.velocity.set(0, 0, 0);
+      this.breakState = null;
+      this.targetInfo = null;
+      this.selectionBox.visible = false;
+      this.player.updateCamera();
+      this.world.updateVisible(this.player.position.x, this.player.position.z);
+      for (let i = 0; i < 10; i += 1) {
+        this.world.processQueues(2, 3);
+      }
+      this.showMessage("Respawned at spawn point", "ok", 1400);
+    }
+
+    handleChatSubmit() {
+      if (!this.ui.chatInput) {
+        return;
+      }
+      const raw = this.ui.chatInput.value.trim();
+      if (!raw) {
+        this.closeChat(true);
+        return;
+      }
+
+      if (raw.startsWith("/")) {
+        const command = raw.slice(1).trim().toLowerCase();
+        if (command === "respawn") {
+          this.respawnPlayer();
+        } else {
+          this.showMessage(`Unknown command: /${command}`, "warn", 1600);
+        }
+      } else {
+        this.showMessage("Single-player command chat: try /respawn", "warn", 1600);
+      }
+
+      this.closeChat(true);
     }
 
     createSelectionBox() {
@@ -3511,6 +3590,9 @@
           if (this.inventoryOpen) {
             this.toggleInventory(false);
           }
+          if (this.ui.instructions && !this.ui.instructions.classList.contains("hidden")) {
+            this.ui.instructions.classList.add("hidden");
+          }
           return;
         }
 
@@ -3689,7 +3771,10 @@
           this.controlsEnabled = true;
           this.ui.instructions.classList.add("hidden");
         } else {
-          this.ui.instructions.classList.remove("hidden");
+          // Keep the intro overlay dismissed when closing inventory/crafting UI.
+          // Player can still click to re-lock pointer if needed.
+          this.controlsEnabled = document.pointerLockElement === this.renderer.domElement;
+          this.ui.instructions.classList.add("hidden");
         }
       }
 
