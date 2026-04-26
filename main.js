@@ -8,6 +8,9 @@
   const MAX_INTERACT_DISTANCE = 6;
   const SAVE_VERSION = 1;
   const SAVE_PREFIX = "browsercraft_save";
+  const CHAT_HISTORY_LIMIT = 40;
+  const CHAT_HELP_TEXT =
+    "Commands: /help, /respawn, /setspawn, /give <item|all> [count], /gamemode <survival|creative>, /fly [on|off|toggle], /time <day|night|sunrise|sunset|noon|midnight|0-1>";
 
   const BLOCK = {
     AIR: 0,
@@ -59,9 +62,10 @@
     [BLOCK.STONE]: {
       all: {
         texture: "assets/minecraft/textures/block/stone.png",
-        baseColor: 0x7e838a,
-        bands: [0.74, 0.98, 1.26],
-        contrast: 0.18,
+        // 1.21.11 stone.png is grayscale with dominant tones near 104/116/127/143.
+        baseColor: 0x7d7d7d,
+        bands: [0.825, 0.92, 1.01, 1.135],
+        contrast: 0.06,
       },
     },
     [BLOCK.LOG]: {
@@ -2182,8 +2186,8 @@
           wz - faceIndex * 19,
           this.seed ^ (blockId * 131 + faceIndex * 29)
         );
-        const toneIndex = toneHash < 0.35 ? 0 : toneHash < 0.7 ? 1 : 2;
         const bands = faceStyle.bands || [0.9, 1.0, 1.1];
+        const toneIndex = Math.min(bands.length - 1, Math.floor(toneHash * bands.length));
         textureMul = bands[toneIndex];
 
         const grainHash =
@@ -2745,7 +2749,11 @@
       this.timeOfDay = 0.2;
       this.targetInfo = null;
       this.chatOpen = false;
-      this.respawnPoint = new THREE.Vector3(0.5, 70, 0.5);
+      this.chatHistory = [];
+      this.chatHistoryIndex = -1;
+      this.chatHistoryDraft = "";
+      this.chatItemLookup = new Map();
+      this.respawnPoint = null;
 
       this.fpsState = {
         frameCount: 0,
@@ -2783,6 +2791,7 @@
       this.dragMime = "application/x-browsercraft-item";
 
       this.buildUI();
+      this.rebuildChatItemLookup();
       this.bindEvents();
       this.loadGame();
       this.updateHUD(true);
@@ -2835,6 +2844,8 @@
         return;
       }
       this.chatOpen = true;
+      this.chatHistoryIndex = -1;
+      this.chatHistoryDraft = "";
       this.ui.chatOverlay.classList.add("visible");
       this.unlockPointer();
       this.controlsEnabled = false;
@@ -2849,6 +2860,8 @@
         return;
       }
       this.chatOpen = false;
+      this.chatHistoryIndex = -1;
+      this.chatHistoryDraft = "";
       this.ui.chatOverlay.classList.remove("visible");
       this.ui.chatInput.value = "";
 
@@ -2864,9 +2877,293 @@
       }
     }
 
+    setRespawnPointFromPlayer(showFeedback = true) {
+      const p = this.player.position;
+      this.respawnPoint = new THREE.Vector3(p.x, Math.max(2.01, p.y), p.z);
+      if (showFeedback) {
+        this.showMessage(
+          `Respawn point set: ${p.x.toFixed(1)}, ${Math.max(2.01, p.y).toFixed(1)}, ${p.z.toFixed(1)}`,
+          "ok",
+          1600
+        );
+      }
+    }
+
+    parseChatCount(rawValue, fallback, max = 4096) {
+      if (rawValue === undefined || rawValue === null || rawValue === "") {
+        return fallback;
+      }
+      const parsed = Number(rawValue);
+      if (!Number.isFinite(parsed)) {
+        return null;
+      }
+      const count = Math.floor(parsed);
+      if (count <= 0) {
+        return null;
+      }
+      return Math.min(max, count);
+    }
+
+    normalizeItemSearchKey(raw) {
+      return String(raw || "")
+        .trim()
+        .toLowerCase()
+        .replace(/^minecraft:/, "")
+        .replace(/[_:]+/g, " ")
+        .replace(/[^a-z0-9 ]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    rebuildChatItemLookup() {
+      this.chatItemLookup.clear();
+      const knownItems = this.recipeBook.getKnownItemsSorted();
+      for (let i = 0; i < knownItems.length; i += 1) {
+        const itemId = knownItems[i];
+        const itemName = this.recipeBook.getItemName(itemId);
+        const shortId = itemId.startsWith("minecraft:") ? itemId.slice("minecraft:".length) : itemId;
+        const keys = [itemId, shortId, itemName];
+        const blockId = itemToBlockId(itemId);
+        if (blockId !== null && BLOCK_INFO[blockId]) {
+          keys.push(BLOCK_INFO[blockId].name);
+        }
+
+        for (let k = 0; k < keys.length; k += 1) {
+          const normalized = this.normalizeItemSearchKey(keys[k]);
+          if (normalized && !this.chatItemLookup.has(normalized)) {
+            this.chatItemLookup.set(normalized, itemId);
+          }
+        }
+      }
+    }
+
+    resolveChatItemId(rawToken) {
+      const token = String(rawToken || "").trim();
+      if (!token) {
+        return null;
+      }
+      if (this.recipeBook.knownItems.has(token)) {
+        return token;
+      }
+      const lower = token.toLowerCase();
+      if (this.recipeBook.knownItems.has(lower)) {
+        return lower;
+      }
+      const prefixed = lower.includes(":") ? lower : `minecraft:${lower}`;
+      if (this.recipeBook.knownItems.has(prefixed)) {
+        return prefixed;
+      }
+
+      if (this.chatItemLookup.size === 0) {
+        this.rebuildChatItemLookup();
+      }
+      const normalized = this.normalizeItemSearchKey(token);
+      if (!normalized) {
+        return null;
+      }
+      const exact = this.chatItemLookup.get(normalized);
+      if (exact) {
+        return exact;
+      }
+
+      for (const [key, itemId] of this.chatItemLookup.entries()) {
+        if (key.startsWith(normalized)) {
+          return itemId;
+        }
+      }
+
+      for (const [key, itemId] of this.chatItemLookup.entries()) {
+        if (key.includes(normalized)) {
+          return itemId;
+        }
+      }
+
+      return null;
+    }
+
+    pushChatHistory(rawText) {
+      const entry = String(rawText || "").trim();
+      if (!entry) {
+        return;
+      }
+      const last = this.chatHistory[this.chatHistory.length - 1];
+      if (last === entry) {
+        return;
+      }
+      this.chatHistory.push(entry);
+      if (this.chatHistory.length > CHAT_HISTORY_LIMIT) {
+        this.chatHistory.splice(0, this.chatHistory.length - CHAT_HISTORY_LIMIT);
+      }
+    }
+
+    recallChatHistory(step) {
+      if (!this.ui.chatInput || !this.chatHistory.length || (step !== -1 && step !== 1)) {
+        return;
+      }
+
+      if (step < 0) {
+        if (this.chatHistoryIndex === -1) {
+          this.chatHistoryDraft = this.ui.chatInput.value;
+          this.chatHistoryIndex = this.chatHistory.length - 1;
+        } else if (this.chatHistoryIndex > 0) {
+          this.chatHistoryIndex -= 1;
+        }
+      } else if (this.chatHistoryIndex !== -1) {
+        if (this.chatHistoryIndex < this.chatHistory.length - 1) {
+          this.chatHistoryIndex += 1;
+        } else {
+          this.chatHistoryIndex = -1;
+        }
+      } else {
+        return;
+      }
+
+      this.ui.chatInput.value = this.chatHistoryIndex === -1 ? this.chatHistoryDraft : this.chatHistory[this.chatHistoryIndex];
+      const caret = this.ui.chatInput.value.length;
+      this.ui.chatInput.setSelectionRange(caret, caret);
+    }
+
+    runChatCommand(rawLine) {
+      const commandLine = String(rawLine || "").trim().replace(/^\//, "").trim();
+      if (!commandLine) {
+        this.showMessage(CHAT_HELP_TEXT, "ok", 4200);
+        return;
+      }
+
+      const parts = commandLine.split(/\s+/);
+      const command = (parts.shift() || "").toLowerCase();
+      const args = parts;
+
+      if (command === "help" || command === "?") {
+        this.showMessage(CHAT_HELP_TEXT, "ok", 4200);
+        return;
+      }
+
+      if (command === "respawn") {
+        if (args.length > 0) {
+          this.showMessage("Usage: /respawn", "warn", 1800);
+          return;
+        }
+        this.respawnPlayer();
+        return;
+      }
+
+      if (command === "setspawn") {
+        if (args.length > 0) {
+          this.showMessage("Usage: /setspawn", "warn", 1800);
+          return;
+        }
+        this.setRespawnPointFromPlayer(true);
+        return;
+      }
+
+      if (command === "give") {
+        if (!args.length) {
+          this.showMessage("Usage: /give <item|all> [count]", "warn", 2200);
+          return;
+        }
+        const countArg = args[1];
+        const count = this.parseChatCount(countArg, args[0].toLowerCase() === "all" ? 32 : 1, 4096);
+        if (count === null) {
+          this.showMessage("Count must be a positive number", "warn", 1800);
+          return;
+        }
+        if (args[0].toLowerCase() === "all") {
+          this.giveAllRecipeItems(count);
+          return;
+        }
+        const itemId = this.resolveChatItemId(args[0]);
+        if (!itemId) {
+          this.showMessage(`Unknown item: ${args[0]}`, "warn", 2000);
+          return;
+        }
+        this.give(itemId, count);
+        return;
+      }
+
+      if (command === "gamemode" || command === "mode") {
+        if (!args.length) {
+          this.showMessage("Usage: /gamemode <survival|creative>", "warn", 2200);
+          return;
+        }
+        const modeToken = String(args[0]).toLowerCase();
+        let nextMode = null;
+        if (modeToken === "survival" || modeToken === "s" || modeToken === "0") {
+          nextMode = "survival";
+        } else if (modeToken === "creative" || modeToken === "c" || modeToken === "1") {
+          nextMode = "creative";
+        } else {
+          this.showMessage(`Unknown mode: ${args[0]}`, "warn", 1800);
+          return;
+        }
+        this.player.setMode(nextMode);
+        this.updateHUD(true);
+        this.showMessage(`Mode: ${nextMode === "creative" ? "Creative" : "Survival"}`, "ok", 1400);
+        return;
+      }
+
+      if (command === "fly") {
+        if (this.player.mode !== "creative") {
+          this.showMessage("Fly command requires Creative mode", "warn", 1800);
+          return;
+        }
+        let next = !this.player.flying;
+        if (args.length > 0) {
+          const flyToken = String(args[0]).toLowerCase();
+          if (flyToken === "on" || flyToken === "1" || flyToken === "true") {
+            next = true;
+          } else if (flyToken === "off" || flyToken === "0" || flyToken === "false") {
+            next = false;
+          } else if (flyToken !== "toggle" && flyToken !== "t") {
+            this.showMessage("Usage: /fly [on|off|toggle]", "warn", 2200);
+            return;
+          }
+        }
+        this.player.flying = next;
+        if (this.player.flying) {
+          this.player.velocity.y = 0;
+        }
+        this.updateHUD(true);
+        this.showMessage(this.player.flying ? "Flying enabled" : "Flying disabled", "ok", 1400);
+        return;
+      }
+
+      if (command === "time") {
+        if (!args.length) {
+          this.showMessage("Usage: /time <day|night|sunrise|sunset|noon|midnight|0-1>", "warn", 2600);
+          return;
+        }
+        const timeToken = String(args[0]).toLowerCase();
+        const namedTimes = {
+          sunrise: 0,
+          day: 0.25,
+          noon: 0.25,
+          sunset: 0.5,
+          night: 0.75,
+          midnight: 0.75,
+        };
+        let nextTime = namedTimes[timeToken];
+        if (!Number.isFinite(nextTime)) {
+          const parsed = Number(timeToken);
+          if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+            this.showMessage("Time must be 0-1 or a named value", "warn", 2200);
+            return;
+          }
+          nextTime = parsed;
+        }
+        this.timeOfDay = ((nextTime % 1) + 1) % 1;
+        this.updateDayNight(0);
+        this.showMessage(`Time set: ${timeToken}`, "ok", 1400);
+        return;
+      }
+
+      this.showMessage(`Unknown command: /${command}`, "warn", 1800);
+    }
+
     respawnPlayer() {
       if (!this.respawnPoint) {
         this.relocatePlayerToSurface();
+        this.setRespawnPointFromPlayer(false);
       }
       this.player.position.copy(this.respawnPoint);
       this.player.velocity.set(0, 0, 0);
@@ -2892,14 +3189,10 @@
       }
 
       if (raw.startsWith("/")) {
-        const command = raw.slice(1).trim().toLowerCase();
-        if (command === "respawn") {
-          this.respawnPlayer();
-        } else {
-          this.showMessage(`Unknown command: /${command}`, "warn", 1600);
-        }
+        this.pushChatHistory(raw);
+        this.runChatCommand(raw);
       } else {
-        this.showMessage("Single-player command chat: try /respawn", "warn", 1600);
+        this.showMessage("Command chat only: type /help", "warn", 1800);
       }
 
       this.closeChat(true);
@@ -3689,6 +3982,16 @@
             this.handleChatSubmit();
             return;
           }
+          if (e.code === "ArrowUp") {
+            e.preventDefault();
+            this.recallChatHistory(-1);
+            return;
+          }
+          if (e.code === "ArrowDown") {
+            e.preventDefault();
+            this.recallChatHistory(1);
+            return;
+          }
           if (e.code === "Escape") {
             e.preventDefault();
             this.closeChat(true);
@@ -3878,6 +4181,9 @@
         this.world.processQueues(2, 3);
       }
       this.relocatePlayerToSurface();
+      if (!this.respawnPoint) {
+        this.setRespawnPointFromPlayer(false);
+      }
     }
 
     relocatePlayerToSurface() {
@@ -4291,7 +4597,9 @@
         }
 
         this.world.loadMods(state.modifiedChunks);
+        let loadedPlayerState = false;
         if (state.player && typeof state.player === "object") {
+          loadedPlayerState = true;
           this.player.position.set(
             Number.isFinite(state.player.x) ? state.player.x : 0.5,
             Number.isFinite(state.player.y) ? state.player.y : 70,
@@ -4319,6 +4627,17 @@
           this.timeOfDay = state.timeOfDay;
         }
 
+        if (state.respawnPoint && typeof state.respawnPoint === "object") {
+          const respawnX = Number.isFinite(state.respawnPoint.x) ? state.respawnPoint.x : this.player.position.x;
+          const respawnY = Number.isFinite(state.respawnPoint.y) ? Math.max(2.01, state.respawnPoint.y) : Math.max(2.01, this.player.position.y);
+          const respawnZ = Number.isFinite(state.respawnPoint.z) ? state.respawnPoint.z : this.player.position.z;
+          this.respawnPoint = new THREE.Vector3(respawnX, respawnY, respawnZ);
+        } else if (loadedPlayerState) {
+          this.setRespawnPointFromPlayer(false);
+        } else {
+          this.respawnPoint = null;
+        }
+
         this.player.updateCamera();
         this.showMessage("Loaded saved world state", "ok");
       } catch (err) {
@@ -4340,6 +4659,13 @@
           mode: this.player.mode,
           flying: this.player.flying,
         },
+        respawnPoint: this.respawnPoint
+          ? {
+              x: this.respawnPoint.x,
+              y: this.respawnPoint.y,
+              z: this.respawnPoint.z,
+            }
+          : null,
         inventory: this.inventory.toJSON(),
         modifiedChunks: this.world.serializeMods(),
       };

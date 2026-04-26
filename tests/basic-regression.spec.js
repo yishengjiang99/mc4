@@ -131,6 +131,84 @@ test.describe('BrowserCraft basic regression', () => {
     await page.keyboard.press('KeyI');
     await expect(page.locator('#inventory.visible')).toHaveCount(0);
 
+    // Command chat flow.
+    await page.keyboard.press('Slash');
+    await expect(page.locator('#chatOverlay.visible')).toBeVisible();
+    await expect(page.locator('#chatInput')).toHaveValue('/');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#chatOverlay.visible')).toHaveCount(0);
+
+    const spawnPoint = await page.evaluate(() => {
+      const g = window.__BROWSERCRAFT__;
+      g.player.position.set(11.5, 80.0, -3.5);
+      g.player.velocity.set(0, 0, 0);
+      g.player.updateCamera();
+      return {
+        x: g.player.position.x,
+        y: g.player.position.y,
+        z: g.player.position.z,
+      };
+    });
+
+    await page.keyboard.press('Slash');
+    await page.keyboard.type('setspawn');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#message')).toContainText('Respawn point set');
+
+    await page.evaluate(() => {
+      const g = window.__BROWSERCRAFT__;
+      g.player.position.set(g.player.position.x + 17, g.player.position.y + 5, g.player.position.z + 13);
+      g.player.velocity.set(0, 0, 0);
+      g.player.updateCamera();
+    });
+
+    await page.keyboard.press('Slash');
+    await page.keyboard.type('respawn');
+    await page.keyboard.press('Enter');
+    await expect
+      .poll(async () => {
+        return await page.evaluate((target) => {
+          const p = window.__BROWSERCRAFT__.player.position;
+          return Math.hypot(p.x - target.x, p.y - target.y, p.z - target.z);
+        }, spawnPoint);
+      })
+      .toBeLessThan(0.2);
+
+    const logsBeforeGive = await page.evaluate(() => window.__BROWSERCRAFT__.inventory.getCount('minecraft:oak_log'));
+    await page.keyboard.press('Slash');
+    await page.keyboard.type('give oak_log 3');
+    await page.keyboard.press('Enter');
+    await expect
+      .poll(async () => {
+        return await page.evaluate(() => window.__BROWSERCRAFT__.inventory.getCount('minecraft:oak_log'));
+      })
+      .toBeGreaterThan(logsBeforeGive);
+
+    await page.keyboard.press('Slash');
+    await page.keyboard.type('time night');
+    await page.keyboard.press('Enter');
+    const timeAfterNight = await page.evaluate(() => window.__BROWSERCRAFT__.timeOfDay);
+    expect(timeAfterNight).toBeGreaterThan(0.65);
+    expect(timeAfterNight).toBeLessThan(0.9);
+
+    await page.keyboard.press('Slash');
+    await page.keyboard.type('gamemode survival');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#modeLabel')).toContainText('Survival');
+
+    await page.keyboard.press('Slash');
+    await page.keyboard.type('gamemode creative');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#modeLabel')).toContainText('Creative');
+
+    await page.keyboard.press('Slash');
+    await page.keyboard.type('help');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Slash');
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('#chatInput')).toHaveValue('/help');
+    await page.keyboard.press('Escape');
+
     // Select slot and move a bit.
     await page.keyboard.press('Digit2');
     await page.keyboard.down('KeyW');
