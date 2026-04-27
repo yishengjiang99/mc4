@@ -66,11 +66,21 @@ This runs:
 - `1-9`: select hotbar block
 - `I`: open/close inventory + crafting
 - `Esc`: dismiss crafting/inventory UI
+- `/`: open command chat (opacity `0.6`)
 - `Drag and drop`: move items between inventory and crafting grid
 - `G`: toggle Survival / Creative mode
 - `F`: toggle flying (Creative)
 - `Double-tap Space`: toggle flying (Creative)
 - `T`: toggle day/night cycle speed
+
+Command chat:
+- `/help`: list supported commands
+- `/respawn`: return to spawn point
+- `/setspawn`: set respawn point to current location
+- `/give <item|all> [count]`: add items to inventory
+- `/gamemode <survival|creative>`: change mode
+- `/fly [on|off|toggle]`: toggle flight in Creative
+- `/time <day|night|sunrise|sunset|noon|midnight|0-1>`: set time of day
 
 ## World & Save Behavior
 
