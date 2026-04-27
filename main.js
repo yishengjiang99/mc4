@@ -5,6 +5,12 @@
   const WORLD_HEIGHT = 128;
   const SEA_LEVEL = 44;
   const RENDER_DISTANCE = 7;
+  const TREE_SPAWN_BOOST_CENTER_X = 0.5;
+  const TREE_SPAWN_BOOST_CENTER_Z = 0.5;
+  const TREE_SPAWN_BOOST_INNER_RADIUS = 28;
+  const TREE_SPAWN_BOOST_OUTER_RADIUS = 88;
+  const TREE_SPAWN_BOOST_MULTIPLIER = 2.2;
+  const TREE_MAX_CHANCE = 0.2;
   const MAX_INTERACT_DISTANCE = 6;
   const SAVE_VERSION = 1;
   const SAVE_PREFIX = "browsercraft_save";
@@ -306,6 +312,35 @@
 
   const TABLE_CRAFT_INDEXES = [0, 1, 2, 3, 4, 5, 6, 7, 8];
   const INVENTORY_CRAFT_INDEXES = [0, 1, 3, 4];
+  const REPAIRABLE_ITEM_SUFFIXES = [
+    "_sword",
+    "_axe",
+    "_pickaxe",
+    "_shovel",
+    "_hoe",
+    "_helmet",
+    "_chestplate",
+    "_leggings",
+    "_boots",
+    "_spear",
+    "_horse_armor",
+    "_nautilus_armor",
+  ];
+  const REPAIRABLE_ITEM_EXACT = new Set([
+    "elytra",
+    "shield",
+    "bow",
+    "crossbow",
+    "trident",
+    "fishing_rod",
+    "flint_and_steel",
+    "shears",
+    "carrot_on_a_stick",
+    "warped_fungus_on_a_stick",
+    "mace",
+    "brush",
+    "wolf_armor",
+  ]);
 
   const BLOCK_TO_ITEM = {
     [BLOCK.GRASS]: "minecraft:grass_block",
@@ -874,6 +909,22 @@
       return raw === "leather_helmet" || raw === "leather_chestplate" || raw === "leather_leggings" || raw === "leather_boots" || raw === "leather_horse_armor";
     }
 
+    isRepairableItem(itemId) {
+      if (!itemId || typeof itemId !== "string") {
+        return false;
+      }
+      const raw = itemId.includes(":") ? itemId.split(":")[1] : itemId;
+      if (REPAIRABLE_ITEM_EXACT.has(raw)) {
+        return true;
+      }
+      for (let i = 0; i < REPAIRABLE_ITEM_SUFFIXES.length; i += 1) {
+        if (raw.endsWith(REPAIRABLE_ITEM_SUFFIXES[i])) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     matchTagHeuristic(tagName, itemId) {
       const raw = itemId.includes(":") ? itemId.split(":")[1] : itemId;
       const shortTag = tagName.includes(":") ? tagName.split(":")[1] : tagName;
@@ -1196,6 +1247,9 @@
 
       if (kind === "repairitem") {
         if (cells.length !== 2 || cells[0].itemId !== cells[1].itemId) {
+          return null;
+        }
+        if (!this.isRepairableItem(cells[0].itemId)) {
           return null;
         }
         return { recipe, result: { id: cells[0].itemId, count: 1 } };
@@ -1732,7 +1786,7 @@
             continue;
           }
 
-          const chance = biome.type === "forest" ? 0.042 : 0.008;
+          const chance = this.world.getTreeChance(tx, tz, biome.type);
           const roll = this.world.rand2(tx, tz);
           if (roll > chance) {
             continue;
@@ -1960,6 +2014,33 @@
       return fract(v);
     }
 
+    getTreeChance(x, z, biomeType) {
+      const baseChance = biomeType === "forest" ? 0.06 : biomeType === "plains" ? 0.014 : 0;
+      if (baseChance <= 0) {
+        return 0;
+      }
+
+      const dx = x - TREE_SPAWN_BOOST_CENTER_X;
+      const dz = z - TREE_SPAWN_BOOST_CENTER_Z;
+      const distSq = dx * dx + dz * dz;
+      const innerSq = TREE_SPAWN_BOOST_INNER_RADIUS * TREE_SPAWN_BOOST_INNER_RADIUS;
+      const outerSq = TREE_SPAWN_BOOST_OUTER_RADIUS * TREE_SPAWN_BOOST_OUTER_RADIUS;
+
+      if (distSq >= outerSq) {
+        return baseChance;
+      }
+
+      if (distSq <= innerSq) {
+        return Math.min(TREE_MAX_CHANCE, baseChance * TREE_SPAWN_BOOST_MULTIPLIER);
+      }
+
+      const dist = Math.sqrt(distSq);
+      const falloff = (dist - TREE_SPAWN_BOOST_INNER_RADIUS) / (TREE_SPAWN_BOOST_OUTER_RADIUS - TREE_SPAWN_BOOST_INNER_RADIUS);
+      const t = clamp(1 - falloff, 0, 1);
+      const multiplier = 1 + t * (TREE_SPAWN_BOOST_MULTIPLIER - 1);
+      return Math.min(TREE_MAX_CHANCE, baseChance * multiplier);
+    }
+
     getBiome(x, z) {
       const moisture = this.noise.fractal2(x * 0.0014, z * 0.0014, 4, 0.52, 2.0);
       const rough = this.noise.fractal2((x + 921) * 0.0009, (z - 111) * 0.0009, 3, 0.55, 2.1);
@@ -2007,7 +2088,7 @@
           if (biome.type !== "forest" && biome.type !== "plains") {
             continue;
           }
-          const chance = biome.type === "forest" ? 0.042 : 0.008;
+          const chance = this.getTreeChance(tx, tz, biome.type);
           if (this.rand2(tx, tz) > chance) {
             continue;
           }
@@ -2743,6 +2824,7 @@
       this.craftingTablePos = null;
       this.controlsEnabled = false;
       this.leftMouseDown = false;
+      this.rightMouseDown = false;
       this.breakState = null;
       this.lastPlaceTime = 0;
       this.dayNightSpeed = 1;
@@ -2866,14 +2948,8 @@
       this.ui.chatInput.value = "";
 
       if (restoreControls && !this.inventoryOpen) {
-        if (this.testMode) {
-          this.controlsEnabled = true;
-          this.ui.instructions.classList.add("hidden");
-        } else if (document.pointerLockElement === this.renderer.domElement) {
-          this.controlsEnabled = true;
-        } else {
-          this.lockPointer();
-        }
+        this.controlsEnabled = true;
+        this.ui.instructions.classList.add("hidden");
       }
     }
 
@@ -4000,23 +4076,28 @@
       }
 
       this.ui.playBtn.addEventListener("click", () => {
-        this.lockPointer();
+        this.controlsEnabled = true;
+        this.ui.instructions.classList.add("hidden");
+        this.sfx.ensureCtx();
       });
 
       this.renderer.domElement.addEventListener("click", () => {
         if (!this.inventoryOpen && !this.controlsEnabled) {
-          this.lockPointer();
+          this.controlsEnabled = true;
+          this.ui.instructions.classList.add("hidden");
+          this.sfx.ensureCtx();
         }
       });
 
       document.addEventListener("pointerlockchange", () => {
         const locked = document.pointerLockElement === this.renderer.domElement;
-        this.controlsEnabled = locked && !this.inventoryOpen;
         if (locked) {
+          if (!this.leftMouseDown && !this.rightMouseDown) {
+            this.unlockPointer();
+            return;
+          }
           this.ui.instructions.classList.add("hidden");
           this.sfx.ensureCtx();
-        } else if (!this.inventoryOpen) {
-          this.ui.instructions.classList.remove("hidden");
         }
       });
 
@@ -4028,14 +4109,21 @@
       });
 
       document.addEventListener("mousedown", (e) => {
-        if (!this.controlsEnabled || this.inventoryOpen) {
+        if (this.inventoryOpen) {
           return;
+        }
+        if (!this.controlsEnabled) {
+          this.controlsEnabled = true;
+          this.ui.instructions.classList.add("hidden");
         }
         if (e.button === 0) {
           this.leftMouseDown = true;
+          this.lockPointer();
           this.tryStartBreaking();
         }
         if (e.button === 2) {
+          this.rightMouseDown = true;
+          this.lockPointer();
           if (!this.tryUseBlock()) {
             this.tryPlaceBlock();
           }
@@ -4047,6 +4135,19 @@
           this.leftMouseDown = false;
           this.breakState = null;
         }
+        if (e.button === 2) {
+          this.rightMouseDown = false;
+        }
+        if (!this.leftMouseDown && !this.rightMouseDown) {
+          this.unlockPointer();
+        }
+      });
+
+      window.addEventListener("blur", () => {
+        this.leftMouseDown = false;
+        this.rightMouseDown = false;
+        this.breakState = null;
+        this.unlockPointer();
       });
 
       window.addEventListener("beforeunload", () => {
@@ -4110,9 +4211,7 @@
           this.controlsEnabled = true;
           this.ui.instructions.classList.add("hidden");
         } else {
-          // Keep the intro overlay dismissed when closing inventory/crafting UI.
-          // Player can still click to re-lock pointer if needed.
-          this.controlsEnabled = document.pointerLockElement === this.renderer.domElement;
+          this.controlsEnabled = true;
           this.ui.instructions.classList.add("hidden");
         }
       }

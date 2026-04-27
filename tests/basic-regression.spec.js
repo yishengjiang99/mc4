@@ -81,6 +81,23 @@ test.describe('BrowserCraft basic regression', () => {
       })
       .toBeGreaterThan(craftTarget.countBefore);
 
+    // Regression: selecting "Stick" in 2x2 autofill should not be hijacked by special repair recipe matching.
+    const stickAutofill = await page.evaluate(() => {
+      const g = window.__BROWSERCRAFT__;
+      g.inventory.clearCraftGrid(g.getActiveCraftIndexes());
+      g.ui.craftOutputInput.value = 'Stick';
+      const applied = g.applyOutputSelectionFromInput(true, false);
+      const preview = g.inventory.craftPreview(g.getActiveCraftIndexes());
+      return {
+        applied,
+        itemId: preview ? preview.itemId : null,
+        count: preview ? preview.count : 0,
+      };
+    });
+    expect(stickAutofill.applied).toBeTruthy();
+    expect(stickAutofill.itemId).toBe('minecraft:stick');
+    expect(stickAutofill.count).toBeGreaterThan(0);
+
     await page.keyboard.press('KeyI');
     await expect(page.locator('#inventory.visible')).toHaveCount(0);
 
