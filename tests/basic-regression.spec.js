@@ -59,6 +59,13 @@ test.describe('BrowserCraft basic regression', () => {
     const craftSlots = page.locator('#craftGrid .craft-slot');
     const logCell = page.locator('#invGrid .inv-cell', { hasText: 'Log' }).first();
     await expect(logCell).toBeVisible();
+
+    // Hotbar assignment flow: click inventory item, then press 1-9 to assign that item to the slot.
+    await logCell.click();
+    await page.keyboard.press('Digit9');
+    const hotbarSlot9 = await page.evaluate(() => window.__BROWSERCRAFT__.inventory.getHotbarItemId(8));
+    expect(hotbarSlot9).toBe('minecraft:oak_log');
+
     await logCell.dragTo(craftSlots.first());
 
     const craftTarget = await page.evaluate(() => {

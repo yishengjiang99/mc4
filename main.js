@@ -11,7 +11,22 @@
   const TREE_SPAWN_BOOST_OUTER_RADIUS = 88;
   const TREE_SPAWN_BOOST_MULTIPLIER = 2.2;
   const TREE_MAX_CHANCE = 0.2;
+  const PLAYER_MAX_HEALTH = 10;
+  const PLAYER_MAX_HUNGER = 10;
+  const MONSTER_MAX_COUNT = 14;
+  const MONSTER_SPAWN_INTERVAL = 2.8;
+  const MONSTER_SPAWN_MIN_DISTANCE = 10;
+  const MONSTER_SPAWN_MAX_DISTANCE = 42;
+  const MONSTER_DESPAWN_DISTANCE = 72;
+  const MONSTER_AGGRO_RANGE = 26;
+  const MONSTER_ATTACK_RANGE = 1.5;
+  const MONSTER_ATTACK_COOLDOWN = 1.2;
+  const MONSTER_MOVE_SPEED = 2.2;
+  const MONSTER_WANDER_SPEED = 0.95;
+  const MONSTER_MAX_HEALTH = 6;
+  const MONSTER_MELEE_DAMAGE = 3;
   const MAX_INTERACT_DISTANCE = 6;
+  const MONSTER_HIT_RANGE = 6;
   const SAVE_VERSION = 1;
   const SAVE_PREFIX = "browsercraft_save";
   const CHAT_HISTORY_LIMIT = 40;
@@ -1435,6 +1450,7 @@
       this.recipeBook = recipeBook;
       this.counts = new Map();
       this.selectedHotbar = 0;
+      this.hotbarItems = HOTBAR_DEFAULTS.map((blockId) => blockToItemId(blockId));
       this.craftGrid = new Array(9).fill(null);
 
       this.add(BLOCK.DIRT, 64);
@@ -1486,8 +1502,43 @@
       return this.counts.get(itemId) || 0;
     }
 
+    getHotbarItemId(index) {
+      if (!Number.isInteger(index) || index < 0 || index >= 9) {
+        return null;
+      }
+      return this.hotbarItems[index] || null;
+    }
+
+    setHotbarItem(index, itemIdOrBlockId) {
+      if (!Number.isInteger(index) || index < 0 || index >= 9) {
+        return false;
+      }
+      const itemId = normalizeItemId(itemIdOrBlockId);
+      if (!itemId) {
+        return false;
+      }
+      this.hotbarItems[index] = itemId;
+      return true;
+    }
+
+    clearHotbarItem(index) {
+      if (!Number.isInteger(index) || index < 0 || index >= 9) {
+        return false;
+      }
+      this.hotbarItems[index] = null;
+      return true;
+    }
+
+    getSelectedHotbarItemId() {
+      return this.getHotbarItemId(this.selectedHotbar);
+    }
+
     getSelectedBlock() {
-      return HOTBAR_DEFAULTS[this.selectedHotbar] || BLOCK.DIRT;
+      const itemId = this.getSelectedHotbarItemId();
+      if (!itemId) {
+        return null;
+      }
+      return itemToBlockId(itemId);
     }
 
     countAssigned(itemId, ignoreIndex = -1, activeCraftIndexes = null) {
@@ -1629,6 +1680,7 @@
     toJSON() {
       return {
         selectedHotbar: this.selectedHotbar,
+        hotbarItems: this.hotbarItems.slice(),
         craftGrid: this.craftGrid.slice(),
         counts: Array.from(this.counts.entries()),
       };
@@ -1658,6 +1710,11 @@
 
       if (Number.isInteger(data.selectedHotbar)) {
         this.selectedHotbar = clamp(data.selectedHotbar, 0, 8);
+      }
+
+      if (Array.isArray(data.hotbarItems) && data.hotbarItems.length === 9) {
+        const mapped = data.hotbarItems.map((entry) => normalizeItemId(entry));
+        this.hotbarItems = mapped.length === 9 ? mapped : this.hotbarItems;
       }
 
       if (Array.isArray(data.craftGrid)) {
@@ -2764,6 +2821,325 @@
     }
   }
 
+  class MonsterSystem {
+    constructor(scene, world, player) {
+      this.scene = scene;
+      this.world = world;
+      this.player = player;
+      this.monsters = [];
+      this.monsterById = new Map();
+      this.nextMonsterId = 1;
+      this.spawnTimer = 0;
+      this.onPlayerDamaged = null;
+
+      this.bodyGeo = new THREE.BoxGeometry(0.74, 1.05, 0.45);
+      this.headGeo = new THREE.BoxGeometry(0.62, 0.62, 0.62);
+      this.eyeGeo = new THREE.BoxGeometry(0.08, 0.08, 0.04);
+      this.bodyMat = new THREE.MeshLambertMaterial({ color: 0x4a7d4f });
+      this.headMat = new THREE.MeshLambertMaterial({ color: 0x7caf71 });
+      this.eyeMat = new THREE.MeshBasicMaterial({ color: 0xff5858 });
+    }
+
+    dispose() {
+      for (let i = this.monsters.length - 1; i >= 0; i -= 1) {
+        this.removeMonsterByIndex(i);
+      }
+      this.bodyGeo.dispose();
+      this.headGeo.dispose();
+      this.eyeGeo.dispose();
+      this.bodyMat.dispose();
+      this.headMat.dispose();
+      this.eyeMat.dispose();
+    }
+
+    createMonsterGroup(monsterId) {
+      const group = new THREE.Group();
+      group.userData.monsterId = monsterId;
+
+      const body = new THREE.Mesh(this.bodyGeo, this.bodyMat);
+      body.position.y = 0.86;
+      body.userData.monsterId = monsterId;
+      group.add(body);
+
+      const head = new THREE.Mesh(this.headGeo, this.headMat);
+      head.position.y = 1.66;
+      head.userData.monsterId = monsterId;
+      group.add(head);
+
+      const eyeL = new THREE.Mesh(this.eyeGeo, this.eyeMat);
+      eyeL.position.set(-0.16, 1.72, 0.32);
+      eyeL.userData.monsterId = monsterId;
+      group.add(eyeL);
+
+      const eyeR = new THREE.Mesh(this.eyeGeo, this.eyeMat);
+      eyeR.position.set(0.16, 1.72, 0.32);
+      eyeR.userData.monsterId = monsterId;
+      group.add(eyeR);
+
+      return group;
+    }
+
+    removeMonsterByIndex(index) {
+      if (index < 0 || index >= this.monsters.length) {
+        return;
+      }
+      const monster = this.monsters[index];
+      this.scene.remove(monster.group);
+      this.monsters.splice(index, 1);
+      this.monsterById.delete(monster.id);
+    }
+
+    isWalkableColumn(x, feetY, z) {
+      if (feetY < 1 || feetY >= WORLD_HEIGHT - 2) {
+        return false;
+      }
+      const belowId = this.world.getBlock(x, feetY - 1, z, true);
+      const feetId = this.world.getBlock(x, feetY, z, true);
+      const headId = this.world.getBlock(x, feetY + 1, z, true);
+      const below = BLOCK_INFO[belowId];
+      const feet = BLOCK_INFO[feetId];
+      const head = BLOCK_INFO[headId];
+      if (!below || !feet || !head) {
+        return false;
+      }
+      if (!below.solid || below.liquid) {
+        return false;
+      }
+      if (feet.solid || feet.liquid || head.solid || head.liquid) {
+        return false;
+      }
+      return true;
+    }
+
+    findWalkableY(x, z, hintY = null) {
+      const bx = Math.floor(x);
+      const bz = Math.floor(z);
+      let startY = Number.isFinite(hintY) ? Math.floor(hintY) + 1 : this.world.getHeight(bx, bz) + 2;
+      startY = clamp(startY, 2, WORLD_HEIGHT - 3);
+
+      const minY = Math.max(2, startY - 12);
+      for (let y = startY; y >= minY; y -= 1) {
+        if (this.isWalkableColumn(bx, y, bz)) {
+          return y + 0.02;
+        }
+      }
+
+      const maxY = Math.min(WORLD_HEIGHT - 3, startY + 6);
+      for (let y = startY + 1; y <= maxY; y += 1) {
+        if (this.isWalkableColumn(bx, y, bz)) {
+          return y + 0.02;
+        }
+      }
+
+      return null;
+    }
+
+    spawnMonsterAt(x, y, z) {
+      const id = this.nextMonsterId++;
+      const group = this.createMonsterGroup(id);
+      group.position.set(x, y, z);
+      this.scene.add(group);
+
+      const monster = {
+        id,
+        group,
+        x,
+        y,
+        z,
+        yaw: Math.random() * Math.PI * 2,
+        wanderTimer: 0.8 + Math.random() * 2.2,
+        attackCooldown: Math.random() * 0.9,
+        hp: MONSTER_MAX_HEALTH,
+        bobOffset: Math.random() * Math.PI * 2,
+      };
+      this.monsters.push(monster);
+      this.monsterById.set(id, monster);
+      return monster;
+    }
+
+    trySpawnNearPlayer() {
+      if (this.monsters.length >= MONSTER_MAX_COUNT) {
+        return false;
+      }
+
+      const p = this.player.position;
+      const minDist2 = MONSTER_SPAWN_MIN_DISTANCE * MONSTER_SPAWN_MIN_DISTANCE;
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = lerp(MONSTER_SPAWN_MIN_DISTANCE, MONSTER_SPAWN_MAX_DISTANCE, Math.random());
+        const sx = Math.floor(p.x + Math.cos(angle) * dist) + 0.5;
+        const sz = Math.floor(p.z + Math.sin(angle) * dist) + 0.5;
+        const dx = sx - p.x;
+        const dz = sz - p.z;
+        if (dx * dx + dz * dz < minDist2) {
+          continue;
+        }
+
+        const y = this.findWalkableY(sx, sz);
+        if (!Number.isFinite(y)) {
+          continue;
+        }
+
+        let occupied = false;
+        for (let i = 0; i < this.monsters.length; i += 1) {
+          const m = this.monsters[i];
+          const mx = m.x - sx;
+          const mz = m.z - sz;
+          if (mx * mx + mz * mz < 9) {
+            occupied = true;
+            break;
+          }
+        }
+        if (occupied) {
+          continue;
+        }
+
+        this.spawnMonsterAt(sx, y, sz);
+        return true;
+      }
+
+      return false;
+    }
+
+    update(dt, options = {}) {
+      const allowSpawn = options.allowSpawn !== false;
+      const allowAttack = options.allowAttack !== false;
+      const allowAggro = options.allowAggro !== false;
+
+      if (allowSpawn) {
+        this.spawnTimer += dt;
+        if (this.spawnTimer >= MONSTER_SPAWN_INTERVAL) {
+          this.spawnTimer = 0;
+          this.trySpawnNearPlayer();
+        }
+      } else {
+        this.spawnTimer = 0;
+      }
+
+      const p = this.player.position;
+      const despawnDist2 = MONSTER_DESPAWN_DISTANCE * MONSTER_DESPAWN_DISTANCE;
+      const now = performance.now() * 0.0042;
+
+      for (let i = this.monsters.length - 1; i >= 0; i -= 1) {
+        const monster = this.monsters[i];
+        monster.attackCooldown = Math.max(0, monster.attackCooldown - dt);
+
+        const toPlayerX = p.x - monster.x;
+        const toPlayerZ = p.z - monster.z;
+        const dist2 = toPlayerX * toPlayerX + toPlayerZ * toPlayerZ;
+        if (dist2 > despawnDist2) {
+          this.removeMonsterByIndex(i);
+          continue;
+        }
+
+        const dist = Math.sqrt(dist2);
+        const shouldChase = allowAggro && dist <= MONSTER_AGGRO_RANGE && this.player.mode !== "creative";
+        let speed = MONSTER_WANDER_SPEED;
+        if (shouldChase) {
+          monster.yaw = Math.atan2(toPlayerX, toPlayerZ);
+          speed = MONSTER_MOVE_SPEED;
+          monster.wanderTimer = 0.5 + Math.random() * 0.35;
+        } else {
+          monster.wanderTimer -= dt;
+          if (monster.wanderTimer <= 0) {
+            monster.wanderTimer = 1.1 + Math.random() * 2.6;
+            monster.yaw += (Math.random() - 0.5) * 2.3;
+          }
+        }
+
+        const moveX = Math.sin(monster.yaw) * speed * dt;
+        const moveZ = Math.cos(monster.yaw) * speed * dt;
+        let nextX = monster.x + moveX;
+        let nextZ = monster.z + moveZ;
+        let nextY = this.findWalkableY(nextX, nextZ, monster.y);
+        if (!Number.isFinite(nextY)) {
+          monster.yaw += (Math.random() - 0.5) * 2.8;
+          nextX = monster.x;
+          nextZ = monster.z;
+          nextY = this.findWalkableY(monster.x, monster.z, monster.y);
+        }
+
+        if (Number.isFinite(nextY)) {
+          monster.x = nextX;
+          monster.z = nextZ;
+          monster.y = lerp(monster.y, nextY, clamp(dt * 8, 0, 1));
+        }
+
+        monster.group.position.set(
+          monster.x,
+          monster.y + Math.sin(now + monster.bobOffset) * 0.03,
+          monster.z
+        );
+        monster.group.rotation.y = monster.yaw;
+
+        if (
+          allowAttack &&
+          this.player.mode === "survival" &&
+          dist <= MONSTER_ATTACK_RANGE &&
+          Math.abs(p.y - monster.y) <= 1.8 &&
+          monster.attackCooldown <= 0
+        ) {
+          monster.attackCooldown = MONSTER_ATTACK_COOLDOWN;
+          if (typeof this.onPlayerDamaged === "function") {
+            this.onPlayerDamaged(1, monster);
+          }
+        }
+      }
+    }
+
+    getRaycastTargets() {
+      const targets = [];
+      for (let i = 0; i < this.monsters.length; i += 1) {
+        const monster = this.monsters[i];
+        for (let j = 0; j < monster.group.children.length; j += 1) {
+          targets.push(monster.group.children[j]);
+        }
+      }
+      return targets;
+    }
+
+    tryMeleeHit(raycaster, maxDistance = MONSTER_HIT_RANGE, damage = MONSTER_MELEE_DAMAGE) {
+      const targets = this.getRaycastTargets();
+      if (targets.length === 0) {
+        return null;
+      }
+      const hits = raycaster.intersectObjects(targets, false);
+      if (!hits || hits.length === 0) {
+        return null;
+      }
+      const hit = hits[0];
+      if (!hit || hit.distance > maxDistance) {
+        return null;
+      }
+
+      const monsterId = hit.object && hit.object.userData ? hit.object.userData.monsterId : null;
+      if (!Number.isFinite(monsterId)) {
+        return null;
+      }
+      const monster = this.monsterById.get(monsterId);
+      if (!monster) {
+        return null;
+      }
+
+      monster.hp -= Math.max(1, Math.floor(damage));
+      const pos = { x: monster.x, y: monster.y + 1.3, z: monster.z };
+      let killed = false;
+      if (monster.hp <= 0) {
+        const idx = this.monsters.findIndex((m) => m.id === monster.id);
+        if (idx >= 0) {
+          this.removeMonsterByIndex(idx);
+        }
+        killed = true;
+      }
+
+      return {
+        hit,
+        pos,
+        killed,
+      };
+    }
+  }
+
   class BrowserCraft {
     constructor() {
       this.queryParams = new URLSearchParams(window.location.search);
@@ -2774,6 +3150,7 @@
         stats: document.getElementById("stats"),
         modeLabel: document.getElementById("modeLabel"),
         seedLabel: document.getElementById("seedLabel"),
+        healthHunger: document.getElementById("healthHunger"),
         hotbar: document.getElementById("hotbar"),
         inventory: document.getElementById("inventory"),
         invGrid: document.getElementById("invGrid"),
@@ -2817,6 +3194,7 @@
       this.inventory = new Inventory(this.recipeBook);
       this.particles = new ParticleSystem(this.scene);
       this.sfx = new SimpleSfx();
+      this.monsters = new MonsterSystem(this.scene, this.world, this.player);
 
       this.keys = {};
       this.inventoryOpen = false;
@@ -2836,6 +3214,8 @@
       this.chatHistoryDraft = "";
       this.chatItemLookup = new Map();
       this.respawnPoint = null;
+      this.playerHealth = PLAYER_MAX_HEALTH;
+      this.playerHunger = PLAYER_MAX_HUNGER;
 
       this.fpsState = {
         frameCount: 0,
@@ -2871,6 +3251,9 @@
       this.craftOutputNameLookup = new Map();
       this.craftOutputIdSet = new Set();
       this.dragMime = "application/x-browsercraft-item";
+      this.monsters.onPlayerDamaged = (amount, monster) => {
+        this.applyMonsterDamage(amount, monster);
+      };
 
       this.buildUI();
       this.rebuildChatItemLookup();
@@ -2887,7 +3270,6 @@
       this.animate = this.animate.bind(this);
       requestAnimationFrame(this.animate);
 
-      // TODO: Add hostile mobs with basic AI pathing.
       // TODO: Add redstone-like power simulation and logic blocks.
       // TODO: Add Nether/alternate dimensions with portals.
       // TODO: Add multiplayer sync over WebSockets.
@@ -4042,8 +4424,16 @@
 
         if (hotbarIndex >= 0 && hotbarIndex < HOTBAR_DEFAULTS.length) {
           e.preventDefault();
+          if (this.inventoryOpen && this.selectedCraftItemId) {
+            if (this.inventory.getCount(this.selectedCraftItemId) > 0 && this.inventory.setHotbarItem(hotbarIndex, this.selectedCraftItemId)) {
+              this.inventory.selectedHotbar = hotbarIndex;
+              this.updateHUD(true);
+              this.showMessage(`Set hotbar ${hotbarIndex + 1}: ${this.recipeBook.getItemName(this.selectedCraftItemId)}`, "ok", 1200);
+            }
+            return;
+          }
           this.inventory.selectedHotbar = hotbarIndex;
-          this.updateHUD();
+          this.updateHUD(this.inventoryOpen);
         }
       });
 
@@ -4117,9 +4507,15 @@
           this.ui.instructions.classList.add("hidden");
         }
         if (e.button === 0) {
-          this.leftMouseDown = true;
           this.lockPointer();
-          this.tryStartBreaking();
+          const hitMonster = this.tryAttackMonster();
+          if (hitMonster) {
+            this.leftMouseDown = false;
+            this.breakState = null;
+          } else {
+            this.leftMouseDown = true;
+            this.tryStartBreaking();
+          }
         }
         if (e.button === 2) {
           this.rightMouseDown = true;
@@ -4439,6 +4835,44 @@
       this.updateHUD();
     }
 
+    tryAttackMonster() {
+      if (!this.controlsEnabled || this.inventoryOpen) {
+        return false;
+      }
+      this.raycaster.setFromCamera({ x: 0, y: 0 }, this.camera);
+      const damage = this.player.mode === "creative" ? MONSTER_MAX_HEALTH : MONSTER_MELEE_DAMAGE;
+      const hit = this.monsters.tryMeleeHit(this.raycaster, MONSTER_HIT_RANGE, damage);
+      if (!hit) {
+        return false;
+      }
+
+      this.sfx.break();
+      this.particles.spawn(hit.pos.x, hit.pos.y, hit.pos.z, hit.killed ? 0xbe2a2a : 0xff6161, hit.killed ? 12 : 8);
+      if (hit.killed) {
+        this.showMessage("Monster defeated", "ok", 900);
+      }
+      return true;
+    }
+
+    applyMonsterDamage(amount, _monster = null) {
+      if (this.player.mode !== "survival") {
+        return;
+      }
+      const damage = Math.max(1, Math.floor(amount || 1));
+      this.playerHealth = clamp(this.playerHealth - damage, 0, PLAYER_MAX_HEALTH);
+      this.updateHUD();
+
+      if (this.playerHealth <= 0) {
+        this.playerHealth = PLAYER_MAX_HEALTH;
+        this.respawnPlayer();
+        this.updateHUD(true);
+        this.showMessage("You were slain by a monster", "warn", 1600);
+        return;
+      }
+
+      this.showMessage(`Monster hit! -${damage}❤`, "warn", 850);
+    }
+
     tryUseBlock() {
       if (!this.targetInfo || !this.targetInfo.hit) {
         return false;
@@ -4555,17 +4989,26 @@
     updateHUD(force = false) {
       for (let i = 0; i < this.hotbarEls.length; i += 1) {
         const slot = this.hotbarEls[i];
-        const blockId = HOTBAR_DEFAULTS[i];
-        const info = BLOCK_INFO[blockId];
+        const itemId = this.inventory.getHotbarItemId(i);
         const nameEl = slot.querySelector(".slot-name");
         const countEl = slot.querySelector(".slot-count");
-        const count = this.inventory.getCount(blockId);
+        const count = itemId ? this.inventory.getCount(itemId) : 0;
 
-        nameEl.textContent = info.name;
-        if (this.player.mode === "creative") {
-          countEl.textContent = "∞";
+        if (!itemId) {
+          nameEl.textContent = "Empty";
+          countEl.textContent = "";
         } else {
-          countEl.textContent = String(count);
+          nameEl.textContent = this.recipeBook.getItemName(itemId);
+          if (this.player.mode === "creative") {
+            countEl.textContent = "∞";
+          } else {
+            countEl.textContent = String(count);
+          }
+        }
+        if (itemId && this.player.mode === "survival" && count <= 0) {
+          slot.classList.add("empty");
+        } else {
+          slot.classList.remove("empty");
         }
 
         slot.classList.toggle("selected", i === this.inventory.selectedHotbar);
@@ -4573,6 +5016,9 @@
 
       const flyText = this.player.mode === "creative" ? ` | Fly: ${this.player.flying ? "On" : "Off"}` : "";
       this.ui.modeLabel.textContent = `Mode: ${this.player.mode === "creative" ? "Creative" : "Survival"}${flyText}`;
+      if (this.ui.healthHunger) {
+        this.ui.healthHunger.textContent = `Health: ${this.playerHealth}❤ | Hunger: ${this.playerHunger}🍗`;
+      }
 
       if (force) {
         this.updateInventoryUI();
@@ -4621,8 +5067,8 @@
       }
       if (this.ui.craftHint) {
         this.ui.craftHint.textContent = usingCraftingTable
-          ? "3x3 crafting is active. Type/select an Output, then Craft Output. You can also drag or click-fill slots."
-          : "2x2 crafting is active here. Type/select an Output to auto-fill. Place/right-click a crafting table for 3x3.";
+          ? "3x3 crafting is active. Type/select an Output, then Craft Output. Drag/click-fill slots, and click an inventory item then press 1-9 to set hotbar."
+          : "2x2 crafting is active here. Type/select an Output to auto-fill. Click an inventory item then press 1-9 to set hotbar. Place/right-click a crafting table for 3x3.";
       }
       if (this.ui.craftGrid) {
         this.ui.craftGrid.classList.toggle("inventory-2x2", !usingCraftingTable);
@@ -4679,7 +5125,7 @@
         this.fpsState.elapsed = 0;
 
         const p = this.player.position;
-        this.ui.stats.textContent = `FPS: ${this.fpsState.fps} | XYZ: ${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)} | Chunks: ${this.world.chunks.size}`;
+        this.ui.stats.textContent = `FPS: ${this.fpsState.fps} | XYZ: ${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)} | Chunks: ${this.world.chunks.size} | Monsters: ${this.monsters.monsters.length}`;
       }
     }
 
@@ -4709,6 +5155,12 @@
           }
           if (typeof state.player.flying === "boolean" && this.player.mode === "creative") {
             this.player.flying = state.player.flying;
+          }
+          if (Number.isFinite(state.player.health)) {
+            this.playerHealth = clamp(Math.floor(state.player.health), 0, PLAYER_MAX_HEALTH);
+          }
+          if (Number.isFinite(state.player.hunger)) {
+            this.playerHunger = clamp(Math.floor(state.player.hunger), 0, PLAYER_MAX_HUNGER);
           }
           if (Number.isFinite(state.player.yaw)) {
             this.player.yaw = state.player.yaw;
@@ -4757,6 +5209,8 @@
           pitch: this.player.pitch,
           mode: this.player.mode,
           flying: this.player.flying,
+          health: this.playerHealth,
+          hunger: this.playerHunger,
         },
         respawnPoint: this.respawnPoint
           ? {
@@ -4793,6 +5247,11 @@
       }
 
       this.world.processQueues(2, 3);
+      this.monsters.update(dt, {
+        allowSpawn: !this.testMode,
+        allowAttack: !this.inventoryOpen && this.controlsEnabled,
+        allowAggro: true,
+      });
 
       this.updateRaycastTarget();
       this.updateBreaking(dt);
